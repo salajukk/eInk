@@ -14,6 +14,7 @@ Config:
 import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -58,13 +59,18 @@ def _load_session() -> dict:
 
 
 def _save_session(cookies: dict):
+    # Merge with previously saved cookies so the long-lived device cookie
+    # (__Host-evaka-device-user-*) survives responses that don't re-set it.
+    # Losing it would make the next login look like a new browser and
+    # trigger eVaka's "login from new device" email.
+    merged = {**_load_session(), **cookies}
     SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_FILE.write_text(json.dumps(cookies, ensure_ascii=False))
+    SESSION_FILE.write_text(json.dumps(merged, ensure_ascii=False))
 
 
 # ── HTTP helper functions ──────────────────────────────────────────────────
 
-def _make_session(cookies: dict | None = None) -> requests.Session:
+def _make_session(cookies: dict | None = None, domain: str = "") -> requests.Session:
     s = requests.Session()
     s.headers.update({
         "accept":       "application/json, text/plain, */*",
@@ -72,14 +78,27 @@ def _make_session(cookies: dict | None = None) -> requests.Session:
         "x-evaka-csrf": "1",
     })
     if cookies:
+        # Seed with the real host as domain so Set-Cookie responses replace
+        # these entries instead of creating duplicates in the jar.
         for name, value in cookies.items():
-            s.cookies.set(name, value)
+            s.cookies.set(name, value, domain=domain, path="/")
     return s
+
+
+def _jar_to_dict(jar) -> dict:
+    """dict(jar) raises on duplicate names; prefer server-set (domained) cookies."""
+    cookies = {}
+    for c in jar:
+        if c.name not in cookies or c.domain:
+            cookies[c.name] = c.value
+    return cookies
 
 
 def _login(base_url: str, username: str, password: str) -> requests.Session:
     """Logs in and returns a session object with cookies."""
-    s = _make_session()
+    # Seed with saved cookies: the device cookie must accompany the login
+    # POST or eVaka treats this as a new browser and emails the user.
+    s = _make_session(_load_session(), domain=urlparse(base_url).hostname or "")
     try:
         resp = s.post(
             f"{base_url}/api/citizen/auth/weak-login",
@@ -92,7 +111,7 @@ def _login(base_url: str, username: str, password: str) -> requests.Session:
     except requests.RequestException as e:
         raise DataFetchError(f"eVaka login failed: {e}") from e
 
-    _save_session(dict(s.cookies))
+    _save_session(_jar_to_dict(s.cookies))
     return s
 
 
@@ -188,7 +207,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
     raw = None
     saved = _load_session()
     if saved:
-        s = _make_session(saved)
+        s = _make_session(saved, domain=urlparse(base_url).hostname or "")
         try:
             raw = _fetch_raw(s, base_url, today, end)
         except DataFetchError as e:
@@ -200,6 +219,8 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
     if raw is None:
         s   = _login(base_url, username, password)
         raw = _fetch_raw(s, base_url, today, end)
+
+    _save_session(_jar_to_dict(s.cookies))
 
     events = _apply_cutoff(_parse_events(raw, today, end))
     data   = {

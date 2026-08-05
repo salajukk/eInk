@@ -3,9 +3,13 @@
 ## Project overview
 
 Home dashboard for Waveshare 7.5" e-ink display (800×480px, grayscale).
-Development on macOS (PNG simulation), deployed on Raspberry Pi 3 Model B.
+Development on macOS (PNG simulation), deployed on Raspberry Pi Zero 2 W.
 
-Hardware: Waveshare 7.5" e-Paper HAT V2 + Raspberry Pi Zero 2 W (wired, wall-mounted).
+Hardware: Waveshare 7.5" e-Paper HAT V2 + Raspberry Pi Zero 2 W (wall-mounted in kitchen).
+Network: 2.4 GHz WiFi only (Zero 2 W limitation), hostname `kitchen.local` (192.168.1.241).
+WiFi power-save is disabled (`nmcli connection modify netplan-wlan0-asdasda2.4
+802-11-wireless.powersave 2`, persists across reboots) — with the NetworkManager
+default the Pi slept too deeply to answer ping/SSH/mDNS between fetches.
 
 ## Running
 
@@ -20,13 +24,13 @@ python main.py --only hsl --no-cache   # test single module
 
 Sync to Pi:
 ```bash
-./sync.sh   # rsync to pi@eink.local:~/eInk/ (excludes venv, cache, output, .git)
+./sync.sh   # rsync to juhani@kitchen.local:~/eInk/ (excludes venv, cache, output, .git)
 ```
 
 Run on Pi:
 ```bash
-ssh pi@eink.local "cd ~/eInk && venv/bin/python main.py"
-ssh pi@eink.local "cd ~/eInk && venv/bin/python main.py --no-cache"
+ssh juhani@kitchen.local "cd ~/eInk && venv/bin/python main.py"
+ssh juhani@kitchen.local "cd ~/eInk && venv/bin/python main.py --no-cache"
 ```
 
 Python: 3.13, venv at `venv/`
@@ -131,6 +135,11 @@ Cron runs `main.py` every 10 minutes + `@reboot`; each module decides independen
 - POST `/api/citizen/auth/weak-login` → session cookie saved to `cache/evaka_session.json`
 - GET `/api/citizen/calendar-events?start=...&end=...`
 - Auto re-login on 401/403
+- The signed 90-day device cookie (`__Host-evaka-device-user-<sha256(personId)>`) MUST be
+  persisted and replayed on every login — eVaka emails the user about a "login from a new
+  browser" whenever a weak login arrives without it. Cookies are seeded with the real host
+  as domain so Set-Cookie responses replace them instead of duplicating in the jar
+  (duplicates make `dict(jar)` raise CookieConflictError).
 - Events have separate `title` and `description` fields
 - 14-day window
 - `_apply_cutoff()`: called on both fresh and cached data — hides today's events

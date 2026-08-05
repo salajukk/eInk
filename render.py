@@ -54,14 +54,14 @@ DIVIDER = 80    # dark gray for grid lines
 
 PAD = 12   # cell padding
 
-# Grid: 3 equal columns × 2 rows + full-width news strip at bottom
-NEWS_H = 140
-COL_W  = (WIDTH - 2) // 3          # ≈ 266 px  (2 px for dividers)
-COL2_X = COL_W + 1                 # 267
-COL3_X = COL_W * 2 + 2             # 534
-ROW_H  = (HEIGHT - NEWS_H) // 2    # 170 px
-ROW2_Y = ROW_H                     # 170
-NEWS_Y = ROW_H * 2                 # 340
+# Grid: 3 equal columns × 2 rows + full-width forecast strip at bottom
+FORECAST_H = 140
+COL_W  = (WIDTH - 2) // 3            # ≈ 266 px  (2 px for dividers)
+COL2_X = COL_W + 1                   # 267
+COL3_X = COL_W * 2 + 2               # 534
+ROW_H  = (HEIGHT - FORECAST_H) // 2  # 170 px
+ROW2_Y = ROW_H                       # 170
+FORECAST_Y = ROW_H * 2               # 340
 
 # Fonts
 FONT_HUGE   = _load_font(52, bold=True)   # temperature, kWh value
@@ -314,45 +314,35 @@ def _draw_weather(draw: ImageDraw.Draw, data: dict | None,
         _text(draw, (x + PAD, detail_y + 38), "   ".join(row3), FONT_TINY, fill=GRAY)
 
 
-def _draw_news(draw: ImageDraw.Draw, data: dict | None,
-               x: int, y: int, w: int, h: int):
-    """Full-width news strip showing 2 items side by side."""
-    _label(draw, x, y, "YLE UUTISET", stale=bool(data and data.get("_stale")))
-    content_y = y + PAD + 16
+def _draw_forecast(draw: ImageDraw.Draw, data: dict | None,
+                   x: int, y: int, w: int, h: int):
+    """Full-width strip: coming days as columns (day, icon, high/low)."""
+    cy = _label(draw, x, y, "ENNUSTE", stale=bool(data and data.get("_stale")))
 
-    if not data:
-        _text(draw, (x + PAD, content_y), "Ei saatavilla", FONT_SMALL, fill=GRAY)
+    days = (data or {}).get("forecast", [])[:7]
+    if not days:
+        _text(draw, (x + PAD, cy), "Ei saatavilla", FONT_SMALL, fill=GRAY)
         return
 
-    items = data.get("items", [])[:2]
-    if not items:
-        _text(draw, (x + PAD, content_y), "Ei uutisia", FONT_TINY, fill=GRAY)
-        return
+    col_w = w // len(days)
+    icon_size = 44
 
-    max_w   = w - 2 * PAD
-    line_h1 = 19   # title line height (FONT_SMALL)
-    line_h2 = 15   # description line height (FONT_LABEL)
-    gap     = 8    # gap between items
-    cy      = content_y
+    for i, day in enumerate(days):
+        cx = x + i * col_w + col_w // 2   # column center
 
-    for item in items:
-        if cy + line_h1 > y + h - PAD:
-            break
-        title = item.get("title", "")
-        desc  = item.get("description", "")
+        title = f"{day.get('day', '')} {day.get('date', '')}".strip()
+        _text(draw, (cx, cy), title, FONT_TINY, fill=GRAY, anchor="ma")
 
-        title_lines = _wrap_text(draw, title, FONT_SMALL, max_w)[:2]
-        desc_lines  = _wrap_text(draw, desc,  FONT_LABEL, max_w)[:2] if desc else []
+        _draw_weather_icon(draw, cx - icon_size // 2, cy + 20,
+                           day.get("icon", "unknown"), size=icon_size)
 
-        for line in title_lines:
-            _text(draw, (x + PAD, cy), line, FONT_SMALL, fill=FG)
-            cy += line_h1
-        for line in desc_lines:
-            if cy + line_h2 > y + h - PAD:
-                break
-            _text(draw, (x + PAD, cy), line, FONT_LABEL, fill=GRAY)
-            cy += line_h2
-        cy += gap
+        hi, lo = day.get("high"), day.get("low")
+        temp_y = cy + 20 + icon_size + 8
+        if hi is not None and lo is not None:
+            _text(draw, (cx - 3, temp_y), f"{hi:.0f}°", FONT_SMALL, anchor="ra")
+            _text(draw, (cx + 3, temp_y), f"{lo:.0f}°", FONT_SMALL, fill=GRAY, anchor="la")
+        elif hi is not None:
+            _text(draw, (cx, temp_y), f"{hi:.0f}°", FONT_SMALL, anchor="ma")
 
 
 def _draw_electricity(draw: ImageDraw.Draw, data: dict | None,
@@ -422,6 +412,25 @@ def _draw_calendar(draw: ImageDraw.Draw, data: dict | None,
         cy += block_h
 
 
+def _shorten_route(draw: ImageDraw.Draw, route: str, max_w: int) -> str:
+    """Collapses middle legs to '…' when the route is too wide: 'A -> … -> Z'.
+
+    Keeps the first line(s) and the arrival time (last segment) — the middle
+    transfer chain is the expendable part.
+    """
+    if draw.textlength(route, font=FONT_SMALL) <= max_w:
+        return route
+    segs = route.split(" -> ")
+    for keep in range(len(segs) - 2, 0, -1):
+        candidate = " -> ".join(segs[:keep] + ["…"] + [segs[-1]])
+        if draw.textlength(candidate, font=FONT_SMALL) <= max_w:
+            return candidate
+    # Even 'first -> … -> last' is too wide — hard-truncate from the end
+    while route and draw.textlength(route + "…", font=FONT_SMALL) > max_w:
+        route = route[:-1]
+    return route.rstrip() + "…"
+
+
 def _draw_hsl(draw: ImageDraw.Draw, data: dict | None,
               x: int, y: int, w: int, h: int):
     cy = _label(draw, x, y, "HSL lähdöt", stale=bool(data and data.get("_stale")))
@@ -450,6 +459,7 @@ def _draw_hsl(draw: ImageDraw.Draw, data: dict | None,
         route = lines2
         if arr2:
             route += f" -> {arr2}"
+        route = _shorten_route(draw, route, w - 2 * PAD - time_col)
 
         _text(draw, (x + PAD,            cy), fdep2,  FONT_SMALL)
         _text(draw, (x + PAD + time_col, cy), route,  FONT_SMALL, fill=GRAY)
@@ -556,32 +566,31 @@ def render(
     calendar:    dict | None = None,
     daycare:     dict | None = None,
     hsl:         dict | None = None,
-    news:        dict | None = None,
     width:  int = WIDTH,
     height: int = HEIGHT,
 ) -> Image.Image:
     """
     Renders the dashboard and returns a PIL Image (mode L, 800×480).
 
-    Layout — dark header + 3-column × 2-row grid:
+    Layout — 3-column × 2-row grid + full-width forecast strip:
 
-      ┌──────────────────────────────────────────────────────────┐  HEADER (46px)
-      │  KOTINÄKYMÄ                              ke 19.3.2026   │
-      ├──────────────────┬──────────────────┬────────────────────┤
-      │  PÄIVÄKOTI       │  KALENTERI       │  SÄÄ              │  ROW 1 (217px)
+      ┌──────────────────┬──────────────────┬────────────────────┐
+      │  PÄIVÄKOTI       │  KALENTERI       │  SÄÄ + PVM/KELLO  │  ROW 1 (170px)
       ├──────────────────┼──────────────────┼────────────────────┤
-      │  UUTISET         │  HSL             │  JÄTEHUOLTO       │  ROW 2 (217px)
-      └──────────────────┴──────────────────┴────────────────────┘
+      │  SÄHKÖ           │  HSL             │  JÄTEHUOLTO       │  ROW 2 (170px)
+      ├──────────────────┴──────────────────┴────────────────────┤
+      │  ENNUSTE  (7 days as columns)                            │  STRIP (140px)
+      └──────────────────────────────────────────────────────────┘
        COL_W ≈ 266 px each
     """
     img  = Image.new("L", (width, height), BG)
     draw = ImageDraw.Draw(img)
 
-    # Grid lines — 3 columns × 2 rows + full-width news strip
-    _vertical_divider(draw, COL_W,       0, NEWS_Y)
-    _vertical_divider(draw, COL_W * 2 + 1, 0, NEWS_Y)
+    # Grid lines — 3 columns × 2 rows + full-width forecast strip
+    _vertical_divider(draw, COL_W,       0, FORECAST_Y)
+    _vertical_divider(draw, COL_W * 2 + 1, 0, FORECAST_Y)
     _divider(draw, 0, ROW2_Y, width)
-    _divider(draw, 0, NEWS_Y,  width)
+    _divider(draw, 0, FORECAST_Y,  width)
 
     # Row 1: daycare | calendar | weather+datetime
     _draw_daycare (draw, daycare,     0,      0,      COL_W,          ROW_H)
@@ -593,8 +602,8 @@ def render(
     _draw_hsl        (draw, hsl,         COL2_X, ROW2_Y, COL_W,          ROW_H)
     _draw_waste      (draw, waste,       COL3_X, ROW2_Y, width - COL3_X, ROW_H)
 
-    # Row 3: full-width news strip
-    _draw_news(draw, news, 0, NEWS_Y, width, NEWS_H)
+    # Row 3: full-width 7-day forecast strip (from weather data)
+    _draw_forecast(draw, weather, 0, FORECAST_Y, width, FORECAST_H)
 
     return img
 

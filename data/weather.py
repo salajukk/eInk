@@ -88,7 +88,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
         "daily": ["temperature_2m_max", "temperature_2m_min", "weather_code"],
         "wind_speed_unit": "ms",
         "timezone": "auto",
-        "forecast_days": 5,
+        "forecast_days": 8,
     }
 
     try:
@@ -114,7 +114,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
     day_codes  = daily.get("weather_code", [])
 
     forecast = []
-    for i in range(1, min(5, len(dates))):
+    for i in range(1, min(8, len(dates))):
         try:
             d = date.fromisoformat(dates[i])
         except (ValueError, TypeError):

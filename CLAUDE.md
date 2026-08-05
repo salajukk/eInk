@@ -55,25 +55,24 @@ data/
   waste.py           – manual schedule from config
   evaka.py           – Espoo eVaka weak-login session API
   hsl.py             – HSL Digitransit v2 GraphQL
-  news.py            – YLE RSS feed (no auth)
 
 display/
   simulator.py       – saves output/dashboard.png (macOS)
   epaper.py          – Waveshare 7.5" V2 driver (Raspi only)
 ```
 
-## Layout (3 columns × 2 rows + full-width news strip)
+## Layout (3 columns × 2 rows + full-width forecast strip)
 
 ```
 ┌──────────────────┬──────────────────┬──────────────────┐  ROW_H = 170px
 │  PÄIVÄKOTI       │  KALENTERI       │  SÄÄ + PVM/KELLO │
 ├──────────────────┼──────────────────┼──────────────────┤  ROW_H = 170px
 │  SÄHKÖ           │  HSL             │  JÄTEHUOLTO      │
-├──────────────────┴──────────────────┴──────────────────┤  NEWS_H = 140px
-│  UUTISET  (full width, 2 items stacked)                │
+├──────────────────┴──────────────────┴──────────────────┤  FORECAST_H = 140px
+│  ENNUSTE  (full width, 7 days as columns)              │
 └────────────────────────────────────────────────────────┘
 COL_W ≈ 266px, COL2_X = 267, COL3_X = 534
-NEWS_Y = 340, no header bar
+FORECAST_Y = 340, no header bar
 ```
 
 ## Rendering conventions (render.py)
@@ -153,17 +152,17 @@ Cron runs `main.py` every 10 minutes + `@reboot`; each module decides independen
 - Filters out timed events that have already ended (uses DTEND)
 - Returns up to 8 events, renderer shows ~3 that fit in the cell
 
-## News module specifics (data/news.py)
+## Forecast strip specifics
 
-- YLE RSS feed: `https://feeds.yle.fi/uutiset/v1/majorHeadlines/YLE_UUTISET.rss`
-- URL configurable via `news.url` in config.yaml
-- Returns top 3 items with title + description
-- Rendered full-width at bottom: 2 items stacked, description in FONT_LABEL
+- Bottom strip renders `weather["forecast"]` — up to 7 coming days as columns
+  (day+date, weather icon, high/low temps), drawn by `_draw_forecast()` in render.py
+- Forecast data comes from the weather module (Open-Meteo `forecast_days: 8`,
+  index 0 = today used by the SÄÄ cell, indices 1-7 = the strip)
+- News module was removed in favor of this (data/news.py deleted Aug 2026)
 
 ## Known issues / TODO
 
 - [ ] Caruna (pycaruna) returning null kWh — likely Caruna API change, check pycaruna updates
-- [ ] Consider adding forecast strip to weather cell
 - [ ] Pi Zero 2 W with headers (WH version) would avoid needing to solder headers
 
 ## Git

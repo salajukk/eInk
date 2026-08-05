@@ -4,6 +4,7 @@ weather.py – Fetches weather data from the Open-Meteo API (free, no API key re
 
 import json
 import os
+from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -85,7 +86,9 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
             "wind_speed_10m",
             "precipitation",
         ],
-        "daily": ["temperature_2m_max", "temperature_2m_min", "weather_code"],
+        "daily": ["temperature_2m_max", "temperature_2m_min", "weather_code",
+                  "precipitation_sum", "precipitation_hours"],
+        "hourly": ["weather_code"],
         "wind_speed_unit": "ms",
         "timezone": "auto",
         "forecast_days": 8,
@@ -112,6 +115,17 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
     max_temps  = daily.get("temperature_2m_max", [])
     min_temps  = daily.get("temperature_2m_min", [])
     day_codes  = daily.get("weather_code", [])
+    rain_sums  = daily.get("precipitation_sum", [])
+    rain_hours = daily.get("precipitation_hours", [])
+
+    # Dominant daytime (08–20 local) weather code per date. Open-Meteo's daily
+    # weather_code is the day's WORST hour, so one trace shower turns a sunny
+    # day into a rain icon — the daytime mode matches FMI's daily symbol better.
+    hourly = raw.get("hourly", {})
+    daytime_codes: dict[str, list[int]] = {}
+    for t, code in zip(hourly.get("time", []), hourly.get("weather_code", [])):
+        if code is not None and 8 <= int(t[11:13]) < 20:
+            daytime_codes.setdefault(t[:10], []).append(code)
 
     forecast = []
     for i in range(1, min(8, len(dates))):
@@ -120,6 +134,12 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
         except (ValueError, TypeError):
             continue
         wmo_i = day_codes[i] if i < len(day_codes) else 0
+        rain_mm = rain_sums[i]  if i < len(rain_sums)  else None
+        rain_h  = rain_hours[i] if i < len(rain_hours) else None
+        genuinely_wet = (rain_mm or 0) >= 1.0 or (rain_h or 0) >= 5
+        daytime = daytime_codes.get(dates[i])
+        if daytime and not genuinely_wet:
+            wmo_i = Counter(daytime).most_common(1)[0][0]
         fc_icon, _ = _WMO_MAP.get(wmo_i, ("unknown", ""))
         forecast.append({
             "day":  _FI_DAYS[d.weekday()],

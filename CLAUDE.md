@@ -158,6 +158,10 @@ Cron runs `main.py` every 10 minutes + `@reboot`; each module decides independen
   (day+date, weather icon, high/low temps), drawn by `_draw_forecast()` in render.py
 - Forecast data comes from the weather module (Open-Meteo `forecast_days: 8`,
   index 0 = today used by the SÄÄ cell, indices 1-7 = the strip)
+- Day icons use the dominant daytime (08–20) hourly weather_code, NOT the daily
+  code — Open-Meteo's daily code is the day's worst hour, so a trace shower
+  would turn a sunny day into a rain icon. The worst-case daily code is kept
+  when the day is genuinely wet (precipitation_sum ≥ 1 mm or ≥ 5 rain-hours).
 - News module was removed in favor of this (data/news.py deleted Aug 2026)
 
 ## Known issues / TODO

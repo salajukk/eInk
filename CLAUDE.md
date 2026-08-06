@@ -61,26 +61,35 @@ display/
   epaper.py          – Waveshare 7.5" V2 driver (Raspi only)
 ```
 
-## Layout (3 columns × 2 rows + full-width forecast strip)
+## Layout (NOW band + content row + stats line + forecast strip)
 
 ```
-┌──────────────────┬──────────────────┬──────────────────┐  ROW_H = 170px
-│  PÄIVÄKOTI       │  KALENTERI       │  SÄÄ + PVM/KELLO │
-├──────────────────┼──────────────────┼──────────────────┤  ROW_H = 170px
-│  SÄHKÖ           │  HSL             │  JÄTEHUOLTO      │
-├──────────────────┴──────────────────┴──────────────────┤  FORECAST_H = 140px
+┌────────────────────────────────────────────────────────┐  BAND_H = 118px
+│  07:42  to 6.8.   ☁ 18° Pilvistä        lähtö 12 min  │  (inverted: white bg)
+├──────────────────┬──────────────────┬──────────────────┤  MID_H = 190px
+│  PÄIVÄKOTI       │  KALENTERI       │  HSL lähdöt      │
+├──────────────────┴──────────────────┴──────────────────┤  STATS_Y = 308
+│  Sähkö 32.0 kWh eilen · Sekajäte 7 pv · Biojäte 26 pv  │
+├────────────────────────────────────────────────────────┤  FORECAST_H = 140px
 │  ENNUSTE  (full width, 7 days as columns)              │
 └────────────────────────────────────────────────────────┘
-COL_W ≈ 266px, COL2_X = 267, COL3_X = 534
-FORECAST_Y = 340, no header bar
+COL_W ≈ 266px, COL2_X = 267, COL3_X = 534, FORECAST_Y = 340
 ```
+
+- NOW band (`_draw_now_band`): 72px clock + date, current weather (black icon
+  via `_draw_weather_icon(..., ink=BG, paper=FG)`), leave-in countdown for the
+  first HSL connection ("12 min"). Electricity + waste render as one stats
+  line (`_draw_stats_line`) — they no longer have cells.
+- Partial regions live in the band: CLOCK_REGION = (0, 0, 240, 118),
+  HSL_REGION = (624, 0, 800, 118) — clock and countdown tick every minute.
 
 ## Rendering conventions (render.py)
 
 - **Fonts**: Inter (fonts/ dir) → Futura (macOS) → Helvetica (macOS) → DejaVu (Linux)
-- **Colors**: inverted — BG=0 (black), FG=255 (white), GRAY=255, DIVIDER=80
-- FONT_HUGE=52bold, FONT_LARGE=28bold, FONT_MED=18bold, FONT_SMALL=17bold,
-  FONT_TINY=14bold, FONT_LABEL=12, FONT_HEADER=22bold
+- **Colors**: inverted — BG=0 (black), FG=255 (white), GRAY=255, DIVIDER=255
+  (pure white: the panel is 1-bit, mid-grays dither to speckle)
+- FONT_CLOCK72=72bold, FONT_HERO=46bold, FONT_MED=18bold, FONT_SMALL=17bold,
+  FONT_TINY=14bold, FONT_TINY_R=14 regular, FONT_REG18=18 regular, FONT_LABEL=12
 - Section labels: FONT_LABEL gray at top of each cell (`_label()` helper)
 - No dividers between list items (removed for cleaner look)
 - Weather icons: geometric Pillow drawing (no emoji/unicode symbols)

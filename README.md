@@ -1,20 +1,23 @@
 # E-ink Dashboard
 
-A home dashboard for a Waveshare 7.5" e-ink display (800×480), running on a Raspberry Pi. Displays weather, calendar events, news headlines, waste collection schedule, daycare events, and public transit departures.
+A home dashboard for a Waveshare 7.5" e-ink display (800×480), running on a Raspberry Pi. An inverted "departure board" band on top shows the clock, current weather and a leave-in countdown for the next transit connection; below it: daycare events, calendar, later departures, an electricity + waste stats line, and a 7-day forecast strip.
 
 ## Layout
 
 ```
-┌──────────────────┬──────────────────┬──────────────────┐
-│  PÄIVÄKOTI       │  KALENTERI       │  SÄÄ + PVM/KELLO │
-│  Daycare events  │  Calendar events │  Weather         │
-├──────────────────┼──────────────────┼──────────────────┤
-│  SÄHKÖ           │  HSL             │  JÄTEHUOLTO      │
-│  Electricity     │  Transit         │  Waste schedule  │
+┌────────────────────────────────────────────────────────┐
+│  07:42  to 6.8.   ☁ 18° Pilvistä        lähtö 12 min  │  NOW band (inverted)
+├──────────────────┬──────────────────┬──────────────────┤
+│  PÄIVÄKOTI       │  KALENTERI       │  HSL             │
+│  Daycare events  │  Calendar events │  Later departures│
 ├──────────────────┴──────────────────┴──────────────────┤
-│  UUTISET  (full width, 2 headlines)                    │
+│  Sähkö 32.0 kWh eilen · Sekajäte 7 pv · Biojäte 26 pv  │  stats line
+├────────────────────────────────────────────────────────┤
+│  ENNUSTE  (7-day forecast as columns)                  │
 └────────────────────────────────────────────────────────┘
 ```
+
+The clock and the countdown live in the band's partial-refresh regions, so they tick every minute between full refreshes.
 
 ## Hardware
 
@@ -32,9 +35,8 @@ A home dashboard for a Waveshare 7.5" e-ink display (800×480), running on a Ras
 
 | Module | Source | Auth |
 |---|---|---|
-| Weather | [Open-Meteo](https://open-meteo.com/) | None |
+| Weather + forecast | [Open-Meteo](https://open-meteo.com/) | None |
 | Calendar | Google Calendar iCal | Secret URL token |
-| News | YLE Uutiset RSS | None |
 | Waste | Manual schedule in config | None |
 | Daycare | Espoo eVaka (`/api/citizen/auth/weak-login`) | Username + password |
 | Transit | [HSL Digitransit v2 GraphQL](https://portal-api.digitransit.fi/) | API key |
@@ -222,9 +224,8 @@ eInk/
 ├── cron/
 │   └── eink.crontab     # Managed crontab block (installed via sync_cron.sh)
 ├── data/
-│   ├── weather.py       # Open-Meteo
+│   ├── weather.py       # Open-Meteo (current + 7-day forecast)
 │   ├── calendar.py      # iCal / Google Calendar
-│   ├── news.py          # YLE RSS feed
 │   ├── electricity.py   # Caruna / pycaruna
 │   ├── waste.py         # Manual waste schedule
 │   ├── evaka.py         # Espoo daycare (eVaka)
@@ -256,8 +257,8 @@ The cron's per-minute slot runs `main.py --partial-only`, which re-renders the d
 
 ```yaml
 partial_updates:
-  clock: true   # ticks every minute
-  hsl: true     # drops connections whose departure has passed
+  clock: true   # NOW band clock+date — ticks every minute
+  hsl: true     # NOW band leave-in countdown — recomputed every minute
 ```
 
 Available cells are defined in `render.py` as `PARTIAL_CELLS`. Each entry is `{region, data_key, filter}` where `filter` is an optional `module:function` that mutates the cell's data before render — the HSL cell uses `data.hsl:drop_past_departures` to remove connections where the recomputed `minutes_until ≤ 0`. New partial-eligible cells need an `x`-aligned region (multiples of 8) and an entry in the registry.

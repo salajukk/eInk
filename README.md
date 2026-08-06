@@ -6,7 +6,7 @@ A home dashboard for a Waveshare 7.5" e-ink display (800×480), running on a Ras
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│  07:42  to 6.8.   ☁ 18° Pilvistä        lähtö 12 min  │  NOW band (inverted)
+│  07:42  to 6.8.   ☁ 18° Pilvistä        lähtö 12 min   │  NOW band (inverted)
 ├──────────────────┬──────────────────┬──────────────────┤
 │  PÄIVÄKOTI       │  KALENTERI       │  HSL             │
 │  Daycare events  │  Calendar events │  Later departures│

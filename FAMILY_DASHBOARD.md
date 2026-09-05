@@ -1,136 +1,173 @@
-# Family Dashboard V1
+# Family Dashboard
 
-This fork keeps the original dashboard available as `display.layout: legacy` and adds a family-focused layout as `display.layout: family`.
+This branch keeps the original layouts available and adds a family-focused 13.3inch wall-dashboard layout.
 
-## V1 layout
+## Supported display configurations
 
-```text
-┌────────────────────────────────────────────────────────┐
-│  09:42  la 5.9.      weather        PERHEEN NÄYTTÖ    │
-├───────────────────────────┬────────────────────────────┤
-│ TÄNÄÄN                    │ TULEVAT                    │
-│ 10:00 · Perhe             │ su 6.9. · Perhe           │
-│ Koripallo                 │ Synttärit                  │
-│ ...                       │ ...                        │
-├───────────────────────────┴────────────────────────────┤
-│ MUISTETTAVAA  □ item  □ item  □ item                  │
-├────────────────────────────────────────────────────────┤
-│ ENNUSTE  ma  ti  ke  to  pe  la  su                   │
-└────────────────────────────────────────────────────────┘
-```
-
-If HSL is enabled, the next departure countdown replaces the title on the right side of the top band.
-
-## 1. Local setup
-
-```bash
-git checkout family-dashboard-v1
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-cp config.example.yaml config.yaml
-```
-
-Edit `config.yaml`. For the first test, only these modules need to be enabled:
+### Recommended: Waveshare 13.3inch e-Paper HAT (K)
 
 ```yaml
-features:
-  weather: true
-  calendar: true
-  tasks: true
-  hsl: false
-  waste: false
-  electricity: false
-  evaka: false
-
 display:
-  width: 800
-  height: 480
-  layout: family
+  model: "waveshare_13in3k"
+  width: 960
+  height: 680
+  rotation: 0
+  layout: "family_13in3"
 ```
 
-Add your home coordinates, private iCal links and temporary reminders.
+Target hardware is the black/white Waveshare 13.3inch e-Paper HAT (K), 960x680.
 
-## 2. Test individual data modules
+### Original 7.5inch Waveshare V2
+
+```yaml
+display:
+  model: "waveshare_7in5_v2"
+  width: 800
+  height: 480
+  rotation: 0
+  layout: "family"
+```
+
+The original upstream layout is still available with `display.layout: legacy`.
+
+## 1. Local Windows/macOS/Linux development
+
+The common requirements deliberately contain no Raspberry Pi display driver, so they also work on development machines:
+
+```bash
+python3 -m venv venv
+pip install -r requirements.txt
+```
+
+On Windows PowerShell in this project, using the virtual environment Python directly is fine:
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe main.py --no-cache
+```
+
+The simulator writes the rendered image to:
+
+```text
+output/dashboard.png
+```
+
+## 2. Data-module tests
 
 ```bash
 python main.py --only weather --no-cache
 python main.py --only calendar --no-cache
+python main.py --only hsl --no-cache
+python main.py --only school --no-cache
 python main.py --only tasks
 ```
 
-## 3. Render a preview
+## 3. Raspberry Pi setup for the 13.3inch display
 
-On macOS:
+Enable SPI first with Raspberry Pi configuration tools.
 
-```bash
-python main.py --no-cache --preview
-```
-
-On other development systems, run without `--preview` and inspect `output/dashboard.png`.
-
-Do layout work in `render_family.py`. The original `render.py` is intentionally left intact so upstream changes are easier to merge.
-
-## 4. Raspberry Pi deployment
-
-Copy the deployment template and set your SSH target:
-
-```bash
-cp deploy.env.example deploy.env
-```
-
-Example `deploy.env`:
-
-```bash
-PI_TARGET=youruser@familydisplay.local
-```
-
-`deploy.env` is gitignored.
-
-Then sync files:
-
-```bash
-./sync.sh
-```
-
-On the Pi, create the virtual environment and install dependencies:
+Then install the 13.3inch hardware dependencies inside the project virtual environment:
 
 ```bash
 cd ~/eInk
 python3 -m venv venv
-venv/bin/pip install -r requirements.txt
+venv/bin/pip install -r requirements-pi-13in3.txt
 mkdir -p cache output
 ```
 
-Copy your real `config.yaml` to the Pi and test a full refresh:
+`requirements-pi-13in3.txt` installs the common dashboard dependencies plus the Waveshare vendor driver and Raspberry Pi SPI/GPIO dependencies.
+
+Before connecting the full dashboard to the display, run the minimal hardware smoke test:
+
+```bash
+venv/bin/python test_display_13in3.py
+```
+
+If the bordered test page appears, SPI, the HAT, the Waveshare driver and the panel are working.
+
+Then test the real dashboard:
 
 ```bash
 venv/bin/python main.py --no-cache --full-refresh
 ```
 
-When the display works correctly, install the managed cron block:
+## 4. Partial refresh on the 13.3inch panel
+
+Partial refresh is intentionally disabled for `waveshare_13in3k` for the first hardware version.
+
+The Waveshare partial-update sequence expects the panel RAM to be primed with `display_Base()` in the same powered session. The dashboard currently runs as short-lived cron processes, so blindly reusing the 7.5inch cross-process partial-refresh strategy would be risky. `main.py --partial-only` therefore safely skips a tick on the 13.3inch model instead of refreshing the panel incorrectly.
+
+Use this configuration initially:
+
+```yaml
+partial_updates:
+  clock: false
+  hsl: false
+```
+
+The complete dashboard can still refresh normally every 10 minutes. True partial refresh can be enabled later after testing it on the physical 13.3inch panel.
+
+## 5. Raspberry Pi setup for the old 7.5inch display
+
+For the original 7.5inch V2 hardware use:
+
+```bash
+venv/bin/pip install -r requirements-pi-7in5.txt
+```
+
+That file installs `betterepd7in5` in addition to the common dependencies. The 7.5inch adapter continues to support partial refresh.
+
+## 6. Deployment
+
+Copy the deployment template and set the Raspberry Pi SSH target:
+
+```bash
+cp deploy.env.example deploy.env
+```
+
+Example:
+
+```bash
+PI_TARGET=youruser@familydisplay.local
+```
+
+`deploy.env` and `config.yaml` are gitignored and must contain the real machine-specific settings and secrets only locally.
+
+Sync the application with:
+
+```bash
+./sync.sh
+```
+
+When the display has been tested successfully, install the managed cron block with:
 
 ```bash
 ./sync_cron.sh
 ```
 
-The crontab uses `$HOME/eInk`, so it no longer depends on a hard-coded Raspberry Pi username.
+For the 13.3inch model the minute-level `--partial-only` cron invocations are currently skipped safely by the application. Full dashboard refreshes continue normally.
 
-## Architecture for new features
+## Architecture
 
-Keep the existing flow:
+The data flow stays intentionally simple:
 
 ```text
-data/<feature>.py -> main.py -> render_family.py -> display
+data/<feature>.py -> main.py -> renderer -> display adapter
 ```
 
-A new data module should expose:
+Family renderers:
 
-```python
-def fetch(config: dict, use_cache: bool = True) -> dict:
-    ...
+```text
+render_family.py          800x480 / 7.5inch
+render_family_13in3.py    960x680 / 13.3inch K
 ```
 
-Then add its name to `MODULES` in `main.py`, add a `features.<name>` switch in the config, and pass the returned dictionary to the renderer.
+Hardware adapters:
 
-Good next candidates are school lunch, hobby schedules, birthdays and a real task provider such as Google Tasks or Todoist.
+```text
+display/epaper.py         Waveshare 7.5inch V2
+display/epaper_13in3.py   Waveshare 13.3inch HAT (K)
+display/simulator.py      development preview
+```
+
+`main.py` chooses the hardware adapter from `display.model` only when it is actually running on a Raspberry Pi. On a normal development computer it always uses the simulator.

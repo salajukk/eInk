@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("dashboard")
 
-MODULES = ("weather", "electricity", "waste", "calendar", "evaka", "hsl", "tasks")
+MODULES = ("weather", "electricity", "waste", "calendar", "evaka", "hsl", "tasks", "school")
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -99,6 +99,7 @@ def _render_dashboard(config: dict, data: dict, width: int, height: int):
             weather=data.get("weather"),
             calendar=data.get("calendar"),
             tasks=data.get("tasks"),
+            school=data.get("school"),
             hsl=data.get("hsl"),
             width=width,
             height=height,

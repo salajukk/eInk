@@ -3,7 +3,7 @@
 Target panel: Waveshare 13.3inch e-Paper HAT (K), 960x680, black/white.
 The low-level driver comes from Waveshare's official ``waveshare_epd`` package.
 
-For now this adapter deliberately uses full/base refreshes only. Waveshare's
+For now this adapter deliberately uses full refreshes only. Waveshare's
 partial-refresh sequence assumes that the panel RAM has first been primed with
 ``display_Base()`` in the same powered session. Our dashboard currently runs as
 short-lived cron processes, so cross-process partial refreshes are not enabled
@@ -49,18 +49,21 @@ class EPaper13in3Display:
         _CUR_IMG_PATH.parent.mkdir(parents=True, exist_ok=True)
         image.convert("1").save(_CUR_IMG_PATH)
 
-    def _refresh(self, image: Image.Image):
-        """Perform a safe full/base refresh and power the HAT down afterwards."""
+    def _refresh(self, image: Image.Image, prime_base: bool = False):
+        """Refresh the complete panel and power the HAT down afterwards."""
         driver = self._driver_module()
         image = self._prepare(image)
         epd = None
         try:
             epd = driver.EPD()
             epd.init()
-            # display_Base writes both current/previous frame RAM. This is the
-            # safest baseline and also prepares the panel for future partial-
-            # refresh support once that is tested on real hardware.
-            epd.display_Base(epd.getbuffer(image))
+            buffer = epd.getbuffer(image)
+            if prime_base:
+                # Writes both current and previous frame RAM. Use this for the
+                # explicit full-refresh path and before future partial testing.
+                epd.display_Base(buffer)
+            else:
+                epd.display(buffer)
             self._save_cur(image)
         finally:
             if epd is not None:
@@ -75,12 +78,12 @@ class EPaper13in3Display:
                         pass
 
     def show(self, image, **_kwargs):
-        """Refresh the complete dashboard."""
-        self._refresh(image)
+        """Normal complete-panel refresh."""
+        self._refresh(image, prime_base=False)
 
     def show_full(self, image, **_kwargs):
-        """Explicit full refresh; same safe refresh path on this panel."""
-        self._refresh(image)
+        """Complete refresh that also primes both panel frame buffers."""
+        self._refresh(image, prime_base=True)
 
     def show_partials(self, regions, **_kwargs):
         raise RuntimeError(

@@ -81,7 +81,8 @@ def _parse_ical(content: bytes, cal_name: str, window_start: date, window_end: d
             time_str   = None
             all_day    = True
 
-        # Parse end time for timed events so we can filter out past events
+        # Keep the end time in the cached/output data as the roomy family
+        # layout shows start-end ranges such as "17:00 - 17:45".
         end_iso: str | None = None
         dtend = component.get("DTEND")
         if dtend and not all_day:
@@ -117,6 +118,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
         )
 
     today = date.today()
+    today_iso = today.isoformat()
     now   = datetime.now().astimezone()
     window_end = today + timedelta(days=30)
     all_events = []
@@ -144,10 +146,14 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
 
     all_events.sort(key=lambda e: e["_sort"])
 
-    # Remove timed events that have already ended
+    # Keep every event from the current day visible even after it has ended.
+    # That makes TÄNÄÄN a full-day overview instead of only a list of what is
+    # still ahead. The generic past-event guard is kept for compatibility.
     def _not_ended(ev: dict) -> bool:
+        if ev.get("date") == today_iso:
+            return True
         if ev.get("all_day"):
-            return True   # all-day events are shown the whole day
+            return True
         end = ev.get("end_time")
         ref = ev.get("time")
         ts  = end or (f"{ev['date']}T{ref}" if ref else None)
@@ -161,7 +167,6 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
     all_events = [ev for ev in all_events if _not_ended(ev)]
     for ev in all_events:
         ev.pop("_sort", None)
-        ev.pop("end_time", None)
 
     data = {
         "events":     all_events[:8],

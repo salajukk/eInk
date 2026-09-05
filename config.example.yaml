@@ -20,7 +20,7 @@ features:
 dashboard:
   title: "PERHEEN NÄYTTÖ"
 
-# REQUIRED for weather and HSL routing
+# REQUIRED for weather and legacy HSL routing
 location:
   latitude: 60.1699
   longitude: 24.9384
@@ -57,16 +57,22 @@ tasks:
     - title: "Osta maitoa"
       done: false
 
-# ── HSL transit (optional) ───────────────────────────────────────────────────
-# Enable with features.hsl: true.
+# ── HSL stop/station departures (optional) ───────────────────────────────────
+# Enable with features.hsl: true. Keep the API key only in config.yaml.
+# stop_id accepts a Digitransit GTFS id with or without the HSL: prefix.
 hsl:
   api_key: "your-digitransit-api-key"
-  to_name: "Destination"
-  to_lat: 60.1985
-  to_lon: 24.9323
-  num_results: 5
-  min_walk_bus: 3
-  min_walk_rail: 15
+  stops:
+    - name: "Bussipysäkki"
+      stop_id: "A1291112"
+      type: "stop"
+      departures: 3
+    - name: "Juna Helsinkiin"
+      stop_id: "A1000204"
+      type: "station"
+      mode: "RAIL"
+      headsign_contains: "Helsinki"
+      departures: 3
 
 # ── Electricity / Caruna (legacy layout, optional) ──────────────────────────
 # Enable with features.electricity: true and display.layout: legacy.

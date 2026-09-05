@@ -47,8 +47,8 @@ HALF_W = WIDTH // 2
 def _hsl_departure_row(stop: dict) -> str | None:
     """Build one HSL row using clock times instead of minute countdowns.
 
-    Buses with the same line show the line once, while mixed train lines keep
-    each line letter paired with its departure time.
+    Bus rows show line, destination and three clock times. Rail rows deliberately
+    omit train letters because every configured departure is towards Helsinki.
     """
     departures = (stop or {}).get("departures") or []
     departures = [dep for dep in departures[:3] if dep.get("departure")]
@@ -60,11 +60,17 @@ def _hsl_departure_row(stop: dict) -> str | None:
     lines = [str(dep.get("line") or "?").strip() for dep in departures]
     times = [str(dep.get("departure") or "").strip() for dep in departures]
 
+    stop_type = str(stop.get("type") or "").strip().lower()
+    rail_only = all(str(dep.get("mode") or "").upper() == "RAIL" for dep in departures)
+    if stop_type == "station" or rail_only:
+        # Example: "Juna HKI 18:04 · 18:11 · 18:19"
+        return f"Juna HKI  {' · '.join(times)}"
+
     if len(set(lines)) == 1:
-        # Example: "41A Kamppi  18:03 · 18:23 · 18:43"
+        # Example: "41A Kamppi 18:03 · 18:23 · 18:43"
         return f"{lines[0]} {destination}  {' · '.join(times)}".strip()
 
-    # Example: "Helsinki  I 18:04 · A 18:11 · I 18:19"
+    # Fallback for a stop serving several bus lines.
     pairs = " · ".join(f"{line} {time}" for line, time in zip(lines, times))
     return f"{destination}  {pairs}".strip()
 

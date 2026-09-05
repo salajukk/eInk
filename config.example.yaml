@@ -10,6 +10,7 @@ features:
   weather: true
   calendar: true
   tasks: true
+  school: false
   hsl: false
   waste: false
   electricity: false
@@ -35,6 +36,16 @@ calendars:
   #   ical_url: "https://calendar.google.com/calendar/ical/ANOTHER_ID/private-TOKEN/basic.ics"
   # - name: "Lapset"
   #   ical_url: "https://calendar.google.com/calendar/ical/CHILDREN_ID/private-TOKEN/basic.ics"
+
+# ── School schedules / Wilma ────────────────────────────────────────────────
+# Each child can have their own private Wilma iCalendar subscription URL.
+# The URL is a secret: keep the real values only in config.yaml.
+# Enable with features.school: true.
+school_schedules:
+  - name: "Lapsi 1"
+    ical_url: "YOUR_FIRST_CHILD_WILMA_ICAL_URL"
+  - name: "Lapsi 2"
+    ical_url: "YOUR_SECOND_CHILD_WILMA_ICAL_URL"
 
 # ── Family reminders ─────────────────────────────────────────────────────────
 # V1 reads reminders directly from config.yaml. Later this module can be swapped
@@ -98,6 +109,7 @@ partial_updates:
 # ── Cache TTLs ───────────────────────────────────────────────────────────────
 cache:
   ttl_minutes: 55
+  school_ttl_minutes: 55
   hsl_ttl_minutes: 10
   hsl_active_hours: [6, 22]
   evaka_ttl_minutes: 1440

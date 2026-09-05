@@ -57,6 +57,29 @@ def _section_label(draw: ImageDraw.Draw, x: int, y: int, text: str, stale: bool 
               "*", FONT_LABEL, fill=GRAY)
 
 
+def _hsl_departure_row(stop: dict) -> str | None:
+    """Build one compact row for a configured stop/station."""
+    departures = (stop or {}).get("departures") or []
+    departures = [dep for dep in departures[:3] if dep.get("minutes_until") is not None]
+    if not departures:
+        return None
+
+    first = departures[0]
+    destination = str(first.get("headsign") or stop.get("name") or "").strip()
+    lines = [str(dep.get("line") or "?").strip() for dep in departures]
+    minutes = [str(int(dep.get("minutes_until", 0))) for dep in departures]
+
+    if len(set(lines)) == 1:
+        # Example: "41A Kamppi  6 · 27 · 47 min"
+        return f"{lines[0]} {destination}  {' · '.join(minutes)} min".strip()
+
+    # Train stations often have several different lines towards the same
+    # destination. Keep each line paired with its own minute counter.
+    # Example: "Helsinki  I 2 · E 12 · U 22 min"
+    pairs = " · ".join(f"{line} {minute}" for line, minute in zip(lines, minutes))
+    return f"{destination}  {pairs} min".strip()
+
+
 def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
                    title: str, w: int, h: int = BAND_H):
     draw.rectangle([0, 0, w, h - 1], fill=FG)
@@ -69,6 +92,8 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
     _text(draw, (dx, mid - 14), _DAYS_FI[now.weekday()], FONT_REG18, fill=BG, anchor="ls")
     _text(draw, (dx, mid + 26), f"{now.day}.{now.month}.", FONT_MED, fill=BG, anchor="ls")
 
+    stop_boards = (hsl or {}).get("stops") or []
+
     wx = 338
     if weather:
         _draw_weather_icon(draw, wx, mid - 26, weather.get("icon", "unknown"),
@@ -78,12 +103,33 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
         _text(draw, (wx + 62, mid), temp_str, FONT_HERO, fill=BG, anchor="lm")
         tx = wx + 62 + int(draw.textlength(temp_str, font=FONT_HERO)) + 10
         condition = weather.get("condition_fi") or weather.get("condition") or ""
-        _text(draw, (tx, mid - 18), _fit_text(draw, condition, FONT_TINY, 126),
+        condition_width = 82 if stop_boards else 126
+        _text(draw, (tx, mid - 18), _fit_text(draw, condition, FONT_TINY, condition_width),
               FONT_TINY, fill=BG)
         hi, lo = weather.get("forecast_today_high"), weather.get("forecast_today_low")
         if hi is not None and lo is not None:
             _text(draw, (tx, mid + 3), f"{lo:.0f}° … {hi:.0f}°", FONT_TINY_R, fill=BG)
 
+    # Preferred family-dashboard mode: two compact departure-board rows.
+    if stop_boards:
+        rows = []
+        for stop in stop_boards[:2]:
+            row = _hsl_departure_row(stop)
+            if row:
+                rows.append(row)
+            else:
+                rows.append(f"{stop.get('name', 'Pysäkki')}  ei lähtöjä")
+
+        right = w - 16
+        max_width = 242
+        _text(draw, (right, 13), "LÄHDÖT", FONT_TINY_R, fill=BG, anchor="ra")
+        for idx, row in enumerate(rows[:2]):
+            y = 39 + idx * 31
+            _text(draw, (right, y), _fit_text(draw, row, FONT_TINY, max_width),
+                  FONT_TINY, fill=BG, anchor="ra")
+        return
+
+    # Backwards-compatible legacy route-planner presentation.
     conns = (hsl or {}).get("connections") or []
     first = conns[0] if conns else None
     if first and first.get("minutes_until") is not None:
@@ -329,7 +375,7 @@ def render(weather: dict | None = None, calendar: dict | None = None,
 
 
 CLOCK_REGION = (0, 0, 240, BAND_H)
-HSL_REGION = (624, 0, 800, BAND_H)
+HSL_REGION = (540, 0, 800, BAND_H)
 PARTIAL_CELLS = {
     "clock": {"region": CLOCK_REGION, "data_key": None, "filter": None},
     "hsl": {"region": HSL_REGION, "data_key": "hsl", "filter": "data.hsl:drop_past_departures"},

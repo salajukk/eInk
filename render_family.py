@@ -184,11 +184,13 @@ def _draw_forecast(draw: ImageDraw.Draw, data: dict | None, x: int, y: int, w: i
 
 
 def render(weather: dict | None = None, calendar: dict | None = None,
-           tasks: dict | None = None, hsl: dict | None = None,
-           width: int = WIDTH, height: int = HEIGHT,
+           tasks: dict | None = None, school: dict | None = None,
+           hsl: dict | None = None, width: int = WIDTH, height: int = HEIGHT,
            title: str = "PERHEEN NÄYTTÖ") -> Image.Image:
     """Render the family dashboard.
 
+    `school` is accepted here so the data module can be tested independently
+    before its final visual placement is added to the family layout.
     The current layout is designed for the Waveshare 7.5" V2 (800×480).
     """
     if width != WIDTH or height != HEIGHT:

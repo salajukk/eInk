@@ -31,7 +31,6 @@ from render_family import (
     _draw_today_panel,
     _draw_upcoming_panel,
     _fit_text,
-    _hsl_departure_row,
 )
 
 WIDTH, HEIGHT = 960, 680
@@ -43,6 +42,31 @@ TASKS_H = 70
 FORECAST_Y = TASKS_Y + TASKS_H
 FORECAST_H = HEIGHT - FORECAST_Y
 HALF_W = WIDTH // 2
+
+
+def _hsl_departure_row(stop: dict) -> str | None:
+    """Build one HSL row using clock times instead of minute countdowns.
+
+    Buses with the same line show the line once, while mixed train lines keep
+    each line letter paired with its departure time.
+    """
+    departures = (stop or {}).get("departures") or []
+    departures = [dep for dep in departures[:3] if dep.get("departure")]
+    if not departures:
+        return None
+
+    first = departures[0]
+    destination = str(first.get("headsign") or stop.get("name") or "").strip()
+    lines = [str(dep.get("line") or "?").strip() for dep in departures]
+    times = [str(dep.get("departure") or "").strip() for dep in departures]
+
+    if len(set(lines)) == 1:
+        # Example: "41A Kamppi  18:03 · 18:23 · 18:43"
+        return f"{lines[0]} {destination}  {' · '.join(times)}".strip()
+
+    # Example: "Helsinki  I 18:04 · A 18:11 · I 18:19"
+    pairs = " · ".join(f"{line} {time}" for line, time in zip(lines, times))
+    return f"{destination}  {pairs}".strip()
 
 
 def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,

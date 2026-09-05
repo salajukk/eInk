@@ -99,11 +99,20 @@ evaka:
   base_url: "https://espoonvarhaiskasvatus.fi"
 
 # ── Display ──────────────────────────────────────────────────────────────────
+# 7.5inch Waveshare V2 / current family layout:
 display:
   width: 800
   height: 480
   rotation: 0
-  layout: "family"   # "family" or original "legacy"
+  layout: "family"   # "family", "family_13in3" or original "legacy"
+
+# For the Waveshare 13.3inch e-Paper HAT (K), use instead:
+# display:
+#   model: "waveshare_13in3k"
+#   width: 960
+#   height: 680
+#   rotation: 0
+#   layout: "family_13in3"
 
 # ── Partial updates ──────────────────────────────────────────────────────────
 # Clock can update every minute without API calls. Turn HSL on here only when
@@ -118,5 +127,3 @@ cache:
   school_ttl_minutes: 55
   hsl_ttl_minutes: 10
   hsl_active_hours: [6, 22]
-  evaka_ttl_minutes: 1440
-  electricity_ttl_minutes: 720

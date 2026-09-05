@@ -17,12 +17,16 @@ _CUR_IMG_PATH = Path("cache/cur_display.png")
 
 
 class EPaperDisplay:
+    model = "waveshare_7in5_v2"
+    supports_partials = True
+
     def _epd(self):
         try:
             import betterepd7in5
         except ImportError:
             raise RuntimeError(
-                "betterepd7in5 not installed. Run: pip install betterepd7in5"
+                "betterepd7in5 not installed. Run: "
+                "venv/bin/pip install -r requirements-pi-7in5.txt"
             )
         return betterepd7in5.EPD(betterepd7in5.RaspberryPi())
 

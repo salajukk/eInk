@@ -1,100 +1,104 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# E-ink Dashboard – config.example.yaml
+# Family E-ink Dashboard – config.example.yaml
 #
 # Copy this file to config.yaml and fill in your own values.
 # config.yaml is gitignored – never commit it (contains credentials).
 # ─────────────────────────────────────────────────────────────────────────────
 
-# REQUIRED: Your home location (used for weather and HSL routing)
+# Which data modules are active. Family V1 starts intentionally small.
+features:
+  weather: true
+  calendar: true
+  tasks: true
+  hsl: false
+  waste: false
+  electricity: false
+  evaka: false
+
+# Dashboard identity
+dashboard:
+  title: "PERHEEN NÄYTTÖ"
+
+# REQUIRED for weather and HSL routing
 location:
-  latitude: 60.1699     # decimal degrees, e.g. 60.1699
-  longitude: 24.9384    # decimal degrees, e.g. 24.9384
-  name: "Helsinki"      # display name (not currently shown, but useful for reference)
+  latitude: 60.1699
+  longitude: 24.9384
+  name: "Helsinki"
 
-# ── Weather ───────────────────────────────────────────────────────────────────
-# Uses Open-Meteo (https://open-meteo.com) – no API key required.
-# location.latitude / location.longitude above are used automatically.
+# ── Calendars ────────────────────────────────────────────────────────────────
+# Add one or more private iCal links. Google Calendar:
+# Settings → Integrate calendar → Secret address in iCal format.
+calendars:
+  - name: "Perhe"
+    ical_url: "https://calendar.google.com/calendar/ical/YOUR_CALENDAR_ID/private-TOKEN/basic.ics"
+  # - name: "Vanhemmat"
+  #   ical_url: "https://calendar.google.com/calendar/ical/ANOTHER_ID/private-TOKEN/basic.ics"
+  # - name: "Lapset"
+  #   ical_url: "https://calendar.google.com/calendar/ical/CHILDREN_ID/private-TOKEN/basic.ics"
 
-# ── Electricity (optional) ───────────────────────────────────────────────────
-# Caruna customers only. Uses pycaruna to fetch yesterday's consumption.
-# Leave this section out entirely to disable the electricity panel.
+# ── Family reminders ─────────────────────────────────────────────────────────
+# V1 reads reminders directly from config.yaml. Later this module can be swapped
+# to Google Tasks/Todoist without changing the renderer.
+tasks:
+  items:
+    - "Liikuntakassi mukaan"
+    - "Palauta kirjaston kirjat"
+    - title: "Osta maitoa"
+      done: false
+
+# ── HSL transit (optional) ───────────────────────────────────────────────────
+# Enable with features.hsl: true.
+hsl:
+  api_key: "your-digitransit-api-key"
+  to_name: "Destination"
+  to_lat: 60.1985
+  to_lon: 24.9323
+  num_results: 5
+  min_walk_bus: 3
+  min_walk_rail: 15
+
+# ── Electricity / Caruna (legacy layout, optional) ──────────────────────────
+# Enable with features.electricity: true and display.layout: legacy.
 caruna:
   username: "your@email.com"
   password: "your-password"
 
-# ── Calendars (optional) ─────────────────────────────────────────────────────
-# iCal links – no OAuth needed.
-# Google Calendar: Settings → (your calendar) → "Secret address in iCal format"
-# Do not share config.yaml – the URL contains a secret token!
-calendars:
-  - name: "Personal"
-    ical_url: "https://calendar.google.com/calendar/ical/YOUR_CALENDAR_ID/private-TOKEN/basic.ics"
-  # - name: "Family"
-  #   ical_url: "https://calendar.google.com/calendar/ical/FAMILY_ID/private-TOKEN/basic.ics"
-
-# ── Waste collection schedule (optional) ─────────────────────────────────────
-# Manual schedule – check your building's or municipality's collection calendar.
-# next_date: the next known collection date (used as anchor for recurrence)
-# interval_weeks: how often (1 = weekly, 2 = every two weeks, etc.)
+# ── Waste schedule (legacy layout, optional) ────────────────────────────────
+# Enable with features.waste: true and display.layout: legacy.
 waste:
   collections:
-    - type: "Residual waste"
+    - type: "Sekajäte"
       interval_weeks: 2
-      next_date: "2026-04-01"   # replace with your next collection date
-    - type: "Bio waste"
+      next_date: "2026-09-09"
+    - type: "Biojäte"
       interval_weeks: 1
-      next_date: "2026-04-01"
-    - type: "Paper"
-      interval_weeks: 4
-      next_date: "2026-04-01"
-    # - type: "Cardboard"
-    #   interval_weeks: 4
-    #   next_date: "2026-04-01"
+      next_date: "2026-09-09"
 
-# ── Daycare / eVaka (optional) ────────────────────────────────────────────────
-# Espoo eVaka service. Leave out to disable the daycare panel.
-# Other municipalities may use different eVaka URLs – set base_url accordingly.
+# ── Daycare / eVaka (legacy layout, optional) ───────────────────────────────
+# Enable with features.evaka: true and display.layout: legacy.
 evaka:
   username: "your@email.com"
   password: "your-password"
-  base_url: "https://espoonvarhaiskasvatus.fi"  # change for your municipality
+  base_url: "https://espoonvarhaiskasvatus.fi"
 
-# ── HSL transit (optional) ───────────────────────────────────────────────────
-# Shows next departures from your home location to a destination.
-# Requires a free API key from https://portal-api.digitransit.fi/
-# location.latitude / location.longitude above are used as the origin.
-hsl:
-  api_key: "your-digitransit-api-key"
-  to_name: "Destination"   # display name for the destination
-  to_lat: 60.1985           # destination latitude
-  to_lon: 24.9323           # destination longitude
-  num_results: 5            # how many connections to fetch
-  min_walk_bus: 3           # minimum minutes to walk to a bus/tram stop
-  min_walk_rail: 15         # minimum minutes to walk to a train/metro station
-
-# ── Display ───────────────────────────────────────────────────────────────────
+# ── Display ──────────────────────────────────────────────────────────────────
 display:
   width: 800
   height: 480
-  rotation: 0    # 0 or 180
+  rotation: 0
+  layout: "family"   # "family" or original "legacy"
 
 # ── Partial updates ──────────────────────────────────────────────────────────
-# Cells listed here as `true` get partial-refreshed every minute by
-# `main.py --partial-only` (no API calls — reads cache only). Uses the
-# `betterepd7in5` partial path on the Pi. Cells set to `false` (or omitted)
-# only refresh during the 10-min fast / hourly full refresh.
-# Available cells: clock, hsl. (Add more to render.py:PARTIAL_CELLS first.)
-# A missing or empty `partial_updates` makes --partial-only a no-op.
+# Clock can update every minute without API calls. Turn HSL on here only when
+# features.hsl is also enabled.
 partial_updates:
   clock: true
-  hsl: true
+  hsl: false
 
-# ── Cache TTLs ────────────────────────────────────────────────────────────────
-# main.py is run by cron every 10 minutes.
-# Each module refreshes only when its TTL has expired.
+# ── Cache TTLs ───────────────────────────────────────────────────────────────
 cache:
-  ttl_minutes: 55               # weather, calendar (just under 1 hour)
-  hsl_ttl_minutes: 10           # transit: refresh every cron run
-  hsl_active_hours: [6, 22]     # HSL API only called between these hours
-  evaka_ttl_minutes: 1440       # daycare: once per day
-  electricity_ttl_minutes: 720  # electricity: twice per day
+  ttl_minutes: 55
+  hsl_ttl_minutes: 10
+  hsl_active_hours: [6, 22]
+  evaka_ttl_minutes: 1440
+  electricity_ttl_minutes: 720

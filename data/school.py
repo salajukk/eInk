@@ -1,8 +1,8 @@
 """School schedule from one or more Wilma iCalendar feeds.
 
-The module intentionally reduces a full lesson timetable to the information
-most useful on a family dashboard: first lesson start, last lesson end and the
-number of lessons for each child today.
+The module reduces a full lesson timetable to the information most useful on a
+family dashboard: today's first/last lesson and, when today has no lessons, the
+next school day within the coming week.
 
 Expected config:
 
@@ -59,7 +59,7 @@ def _local_datetime(value) -> datetime | None:
     return value.astimezone()
 
 
-def _parse_today(content: bytes) -> list[dict]:
+def _parse_range(content: bytes, start_date: date, days: int = 8) -> list[dict]:
     try:
         from icalendar import Calendar
         import recurring_ical_events
@@ -74,11 +74,9 @@ def _parse_today(content: bytes) -> list[dict]:
     except Exception as e:
         raise DataFetchError(f"Wilma iCal parsing failed: {e}") from e
 
-    today = date.today()
-    tomorrow = today + timedelta(days=1)
-
+    end_date = start_date + timedelta(days=days)
     try:
-        occurrences = recurring_ical_events.of(cal).between(today, tomorrow)
+        occurrences = recurring_ical_events.of(cal).between(start_date, end_date)
     except Exception as e:
         raise DataFetchError(f"Wilma recurring event expansion failed: {e}") from e
 
@@ -89,7 +87,7 @@ def _parse_today(content: bytes) -> list[dict]:
             continue
 
         start = _local_datetime(dtstart_prop.dt)
-        if start is None or start.date() != today:
+        if start is None or not (start_date <= start.date() < end_date):
             continue
 
         end = None
@@ -97,11 +95,10 @@ def _parse_today(content: bytes) -> list[dict]:
         if dtend_prop:
             end = _local_datetime(dtend_prop.dt)
 
-        # Wilma lesson events normally contain DTEND. If an entry lacks it,
-        # keep the lesson but don't let it distort the school-day end time.
         title = str(component.get("SUMMARY", "Oppitunti"))
         lessons.append({
             "title": title,
+            "date": start.date().isoformat(),
             "start": start.strftime("%H:%M"),
             "end": end.strftime("%H:%M") if end else None,
             "_start_dt": start,
@@ -110,6 +107,28 @@ def _parse_today(content: bytes) -> list[dict]:
 
     lessons.sort(key=lambda item: item["_start_dt"])
     return lessons
+
+
+def _summarize_day(lessons: list[dict], target_date: date) -> dict:
+    day_lessons = [lesson for lesson in lessons if lesson["date"] == target_date.isoformat()]
+    start = day_lessons[0]["start"] if day_lessons else None
+    lesson_ends = [lesson["_end_dt"] for lesson in day_lessons if lesson["_end_dt"]]
+    end = max(lesson_ends).strftime("%H:%M") if lesson_ends else None
+    clean_lessons = [
+        {
+            "title": lesson["title"],
+            "start": lesson["start"],
+            "end": lesson["end"],
+        }
+        for lesson in day_lessons
+    ]
+    return {
+        "date": target_date.isoformat(),
+        "start": start,
+        "end": end,
+        "lesson_count": len(day_lessons),
+        "lessons": clean_lessons,
+    }
 
 
 def fetch(config: dict, use_cache: bool = True) -> dict:
@@ -126,6 +145,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
             "with each child's Wilma iCal link to config.yaml."
         )
 
+    today = date.today()
     children = []
     try:
         for schedule in schedules:
@@ -136,27 +156,29 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
 
             response = requests.get(url, timeout=15)
             response.raise_for_status()
-            lessons = _parse_today(response.content)
+            lessons = _parse_range(response.content, today, days=8)
 
-            start = lessons[0]["start"] if lessons else None
-            lesson_ends = [lesson["_end_dt"] for lesson in lessons if lesson["_end_dt"]]
-            end = max(lesson_ends).strftime("%H:%M") if lesson_ends else None
+            today_summary = _summarize_day(lessons, today)
 
-            clean_lessons = [
-                {"title": lesson["title"], "start": lesson["start"], "end": lesson["end"]}
-                for lesson in lessons
-            ]
+            next_school_day = None
+            for offset in range(1, 8):
+                candidate = _summarize_day(lessons, today + timedelta(days=offset))
+                if candidate["lesson_count"] > 0:
+                    next_school_day = candidate
+                    break
+
             children.append({
                 "name": name,
-                "start": start,
-                "end": end,
-                "lesson_count": len(lessons),
-                "lessons": clean_lessons,
+                "start": today_summary["start"],
+                "end": today_summary["end"],
+                "lesson_count": today_summary["lesson_count"],
+                "lessons": today_summary["lessons"],
+                "next_school_day": next_school_day,
             })
 
     except (requests.RequestException, DataFetchError) as e:
         cached = _load_cache()
-        if cached and cached.get("date") == date.today().isoformat():
+        if cached and cached.get("date") == today.isoformat():
             cached["_stale"] = True
             return cached
         if isinstance(e, DataFetchError):
@@ -167,7 +189,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
         raise DataFetchError("School schedules are configured but no usable iCal URLs were found.")
 
     data = {
-        "date": date.today().isoformat(),
+        "date": today.isoformat(),
         "children": children,
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
     }

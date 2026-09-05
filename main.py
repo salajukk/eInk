@@ -87,14 +87,19 @@ def fetch_module(name: str, config: dict, use_cache: bool) -> "dict | None":
 
 def _renderer(config: dict):
     layout = config.get("display", {}).get("layout", "legacy")
-    module_name = "render_family" if layout == "family" else "render"
+    if layout == "family":
+        module_name = "render_family"
+    elif layout == "family_13in3":
+        module_name = "render_family_13in3"
+    else:
+        module_name = "render"
     return importlib.import_module(module_name)
 
 
 def _render_dashboard(config: dict, data: dict, width: int, height: int):
     renderer = _renderer(config)
     layout = config.get("display", {}).get("layout", "legacy")
-    if layout == "family":
+    if layout in ("family", "family_13in3"):
         return renderer.render(
             weather=data.get("weather"),
             calendar=data.get("calendar"),

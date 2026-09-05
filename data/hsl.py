@@ -20,6 +20,10 @@ hsl:
       mode: "RAIL"
       headsign_contains: "Helsinki"
       departures: 3
+
+The leading A used by some HSL/Reittiopas identifiers is accepted. Digitransit
+GTFS ids themselves are normally HSL:<numeric-id>, so e.g. A1000204 is tried as
+HSL:1000204 first.
 """
 
 import json
@@ -122,7 +126,9 @@ def _load_cache() -> dict | None:
 
 def _save_cache(data: dict):
     CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    CACHE_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _within_active_hours(active_hours: list) -> bool:
@@ -156,17 +162,62 @@ def _post_graphql(query: str, variables: dict, api_key: str) -> dict:
 
     errors = raw.get("errors")
     if errors:
-        raise DataFetchError(f"HSL GraphQL error: {errors[0].get('message', errors)}")
+        raise DataFetchError(
+            f"HSL GraphQL error: {errors[0].get('message', errors)}"
+        )
     return raw.get("data", {})
 
 
-def _gtfs_id(value: str) -> str:
+def _gtfs_id_candidates(value: str) -> list[str]:
+    """Return likely Digitransit GTFS ids for a configured HSL identifier.
+
+    Digitransit uses ids such as HSL:1000204. Some HSL/Reittiopas identifiers
+    are encountered with an extra leading A (e.g. A1000204), so accept that
+    notation too. We try the stripped form first and the literal form second.
+    """
     value = str(value).strip()
-    return value if ":" in value else f"HSL:{value}"
+    if not value:
+        return []
+    if ":" in value:
+        return [value]
+
+    candidates = []
+    if len(value) > 1 and value[0].upper() == "A" and value[1:].isdigit():
+        candidates.append(f"HSL:{value[1:]}")
+    candidates.append(f"HSL:{value}")
+
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(candidates))
 
 
 def _minutes_until(ts: int, now_ts: float) -> int:
     return max(0, int((ts - now_ts) / 60))
+
+
+def _find_source(
+    query: str,
+    source_type: str,
+    raw_id: str,
+    start_time: int,
+    n: int,
+    api_key: str,
+) -> tuple[dict | None, str | None]:
+    """Try the plausible GTFS id forms and return the first matching source."""
+    tried = []
+    for gtfs_id in _gtfs_id_candidates(raw_id):
+        tried.append(gtfs_id)
+        data = _post_graphql(
+            query,
+            {"id": gtfs_id, "startTime": start_time, "n": n},
+            api_key,
+        )
+        source = data.get(source_type)
+        if source:
+            return source, gtfs_id
+
+    raise DataFetchError(
+        f"HSL {source_type} '{raw_id}' was not found. Tried: {', '.join(tried)}"
+    )
 
 
 def _fetch_stop_boards(hsl_cfg: dict, api_key: str) -> dict:
@@ -178,7 +229,7 @@ def _fetch_stop_boards(hsl_cfg: dict, api_key: str) -> dict:
     result = []
 
     for stop_cfg in configured:
-        raw_id = stop_cfg.get("stop_id") or stop_cfg.get("id")
+        raw_id = str(stop_cfg.get("stop_id") or stop_cfg.get("id") or "").strip()
         if not raw_id:
             continue
 
@@ -189,30 +240,26 @@ def _fetch_stop_boards(hsl_cfg: dict, api_key: str) -> dict:
             )
 
         requested_n = max(1, int(stop_cfg.get("departures", 3)))
-        # Fetch more than we finally show because local filters may remove rows.
-        fetch_n = min(50, max(requested_n * 5, 12))
+        # Fetch extra rows because local mode/headsign filters may remove some.
+        fetch_n = min(50, max(requested_n * 6, 15))
         query = STOP_QUERY_TEMPLATE.replace("SOURCE", source_type)
-        data = _post_graphql(
-            query,
-            {
-                "id": _gtfs_id(raw_id),
-                "startTime": int(now_ts),
-                "n": fetch_n,
-            },
-            api_key,
+        source, matched_gtfs_id = _find_source(
+            query=query,
+            source_type=source_type,
+            raw_id=raw_id,
+            start_time=int(now_ts),
+            n=fetch_n,
+            api_key=api_key,
         )
 
-        source = data.get(source_type)
-        if not source:
-            raise DataFetchError(
-                f"HSL {source_type} '{raw_id}' was not found. "
-                "Check the Digitransit stop/station id."
-            )
-
         wanted_mode = str(stop_cfg.get("mode", "")).upper().strip()
-        wanted_headsign = str(stop_cfg.get("headsign_contains", "")).strip().casefold()
+        wanted_headsign = (
+            str(stop_cfg.get("headsign_contains", "")).strip().casefold()
+        )
         wanted_lines = {
-            str(v).casefold() for v in (stop_cfg.get("lines") or []) if str(v).strip()
+            str(v).casefold()
+            for v in (stop_cfg.get("lines") or [])
+            if str(v).strip()
         }
 
         departures = []
@@ -238,7 +285,11 @@ def _fetch_stop_boards(hsl_cfg: dict, api_key: str) -> dict:
             if service_day is None or scheduled is None:
                 continue
 
-            seconds = realtime if st.get("realtime") and realtime is not None else scheduled
+            seconds = (
+                realtime
+                if st.get("realtime") and realtime is not None
+                else scheduled
+            )
             try:
                 dep_ts = int(service_day) + int(seconds)
             except (TypeError, ValueError):
@@ -247,27 +298,31 @@ def _fetch_stop_boards(hsl_cfg: dict, api_key: str) -> dict:
                 continue
 
             dep_dt = datetime.fromtimestamp(dep_ts)
-            departures.append({
-                "line": route_name or "?",
-                "headsign": headsign,
-                "departure": dep_dt.strftime("%H:%M"),
-                "minutes_until": _minutes_until(dep_ts, now_ts),
-                "realtime": bool(st.get("realtime")),
-                "mode": mode,
-            })
+            departures.append(
+                {
+                    "line": route_name or "?",
+                    "headsign": headsign,
+                    "departure": dep_dt.strftime("%H:%M"),
+                    "minutes_until": _minutes_until(dep_ts, now_ts),
+                    "realtime": bool(st.get("realtime")),
+                    "mode": mode,
+                }
+            )
 
             if len(departures) >= requested_n:
                 break
 
-        result.append({
-            "name": str(stop_cfg.get("name") or source.get("name") or raw_id),
-            "stop_id": str(raw_id),
-            "gtfs_id": source.get("gtfsId") or _gtfs_id(raw_id),
-            "source_name": source.get("name") or "",
-            "code": source.get("code") or "",
-            "type": source_type,
-            "departures": departures,
-        })
+        result.append(
+            {
+                "name": str(stop_cfg.get("name") or source.get("name") or raw_id),
+                "stop_id": raw_id,
+                "gtfs_id": source.get("gtfsId") or matched_gtfs_id,
+                "source_name": source.get("name") or "",
+                "code": source.get("code") or "",
+                "type": source_type,
+                "departures": departures,
+            }
+        )
 
     if not result:
         raise DataFetchError("No usable HSL stops/stations were configured")
@@ -280,6 +335,7 @@ def _fetch_stop_boards(hsl_cfg: dict, api_key: str) -> dict:
 
 
 def _fetch_route_plan(config: dict, hsl_cfg: dict, api_key: str) -> dict:
+    """Legacy point-to-point journey planning mode."""
     to_name = hsl_cfg.get("to_name", "")
     to_lat = hsl_cfg.get("to_lat")
     to_lon = hsl_cfg.get("to_lon")
@@ -326,7 +382,9 @@ def _fetch_route_plan(config: dict, hsl_cfg: dict, api_key: str) -> dict:
 
         try:
             depart_dt = datetime.fromtimestamp(int(start_iso) / 1000)
-            arrive_dt = datetime.fromtimestamp(int(end_iso) / 1000) if end_iso else None
+            arrive_dt = (
+                datetime.fromtimestamp(int(end_iso) / 1000) if end_iso else None
+            )
         except (ValueError, TypeError):
             continue
 
@@ -337,7 +395,11 @@ def _fetch_route_plan(config: dict, hsl_cfg: dict, api_key: str) -> dict:
 
         first_transit_minutes = None
         first_mode = transit_legs[0].get("mode", "") if transit_legs else ""
-        first_stop = transit_legs[0].get("from", {}).get("name", "") if transit_legs else ""
+        first_stop = (
+            transit_legs[0].get("from", {}).get("name", "")
+            if transit_legs
+            else ""
+        )
         first_depart_str = ""
         if transit_legs:
             try:
@@ -347,7 +409,9 @@ def _fetch_route_plan(config: dict, hsl_cfg: dict, api_key: str) -> dict:
             except (ValueError, TypeError):
                 pass
 
-        min_needed = min_walk_rail if first_mode in ("RAIL", "SUBWAY") else min_walk_bus
+        min_needed = (
+            min_walk_rail if first_mode in ("RAIL", "SUBWAY") else min_walk_bus
+        )
         if first_transit_minutes is not None and first_transit_minutes < min_needed:
             continue
 
@@ -367,17 +431,19 @@ def _fetch_route_plan(config: dict, hsl_cfg: dict, api_key: str) -> dict:
             except (ValueError, TypeError):
                 pass
 
-        connections.append({
-            "departure": depart_dt.strftime("%H:%M"),
-            "arrival": arrive_dt.strftime("%H:%M") if arrive_dt else "",
-            "minutes_until": int((depart_dt.timestamp() - now_ts) / 60),
-            "lines": lines_str,
-            "to": to_name,
-            "walk_minutes": walk_minutes,
-            "first_mode": first_mode,
-            "first_stop": first_stop,
-            "first_depart": first_depart_str,
-        })
+        connections.append(
+            {
+                "departure": depart_dt.strftime("%H:%M"),
+                "arrival": arrive_dt.strftime("%H:%M") if arrive_dt else "",
+                "minutes_until": int((depart_dt.timestamp() - now_ts) / 60),
+                "lines": lines_str,
+                "to": to_name,
+                "walk_minutes": walk_minutes,
+                "first_mode": first_mode,
+                "first_stop": first_stop,
+                "first_depart": first_depart_str,
+            }
+        )
 
     return {
         "mode": "route",
@@ -429,11 +495,15 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
         if cached:
             if stop_mode and (cached.get("mode") == "stops" or cached.get("stops")):
                 return cached
-            if not stop_mode and cached.get("mode") != "stops" and not cached.get("stops"):
+            if (
+                not stop_mode
+                and cached.get("mode") != "stops"
+                and not cached.get("stops")
+            ):
                 return cached
 
     if not _within_active_hours(active_hours):
-        cached = _load_cache()
+        cached = _load_cache() if use_cache else None
         if cached:
             cached["_stale"] = True
             return cached
@@ -458,10 +528,14 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
             else _fetch_route_plan(config, hsl_cfg, api_key)
         )
     except DataFetchError:
-        cached = _load_cache()
-        if cached:
-            cached["_stale"] = True
-            return cached
+        # Normal dashboard runs may fall back to the last known data. However,
+        # --no-cache is explicitly a diagnostic/forced-refresh mode, so surface
+        # the real error instead of hiding it behind stale cache data.
+        if use_cache:
+            cached = _load_cache()
+            if cached:
+                cached["_stale"] = True
+                return cached
         raise
 
     _save_cache(data)

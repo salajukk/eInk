@@ -65,14 +65,14 @@ class EPaper13in3Display:
         finally:
             if epd is not None:
                 try:
+                    # Waveshare's sleep() also closes SPI/power via module_exit().
                     epd.sleep()
                 except Exception:
-                    pass
-            try:
-                driver.epdconfig.module_exit(cleanup=True)
-            except Exception:
-                # Do not mask the original display error during cleanup.
-                pass
+                    try:
+                        driver.epdconfig.module_exit()
+                    except Exception:
+                        # Do not mask the original display error during cleanup.
+                        pass
 
     def show(self, image, **_kwargs):
         """Refresh the complete dashboard."""

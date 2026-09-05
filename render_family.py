@@ -111,42 +111,97 @@ def _event_meta(ev: dict, today: bool) -> str:
     return f"{when}  ·  {cal}" if cal else when
 
 
-def _today_school_children(school: dict | None) -> list[dict]:
-    """Children who have a school day today."""
-    return [
-        child for child in (school or {}).get("children", [])[:2]
-        if child.get("start") and child.get("end")
-    ]
+def _dedupe_future_events(events: list[dict]) -> list[dict]:
+    """Keep only the nearest future occurrence of repeated calendar events.
+
+    Google Calendar recurring events are expanded into individual occurrences.
+    On a small family dashboard, showing next week's identical recurrence uses
+    space that is better reserved for other upcoming events. Events with the
+    same title and calendar are therefore shown only once in the upcoming list.
+    """
+    result = []
+    seen = set()
+    for ev in events:
+        key = (str(ev.get("title", "")).strip().casefold(),
+               str(ev.get("calendar", "")).strip().casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(ev)
+    return result
 
 
-def _upcoming_school_children(school: dict | None) -> list[tuple[dict, dict]]:
-    """Next school day for children who do not have school today."""
+def _draw_events(draw: ImageDraw.Draw, data: dict | None, x: int, y: int,
+                 w: int, h: int, today: bool):
+    label = "TÄNÄÄN" if today else "TULEVAT"
+    stale = bool(data and data.get("_stale"))
+    _section_label(draw, x, y, label, stale=stale)
+    cy = y + PAD + 20
+
+    events = (data or {}).get("events", [])
+    today_iso = date.today().isoformat()
+    if today:
+        events = [ev for ev in events if ev.get("date") == today_iso]
+        empty = "Ei menoja tänään"
+    else:
+        events = [ev for ev in events if ev.get("date", "") > today_iso]
+        events = _dedupe_future_events(events)
+        empty = "Ei tulevia tapahtumia"
+
+    if not events:
+        _text(draw, (x + PAD, cy + 4), empty, FONT_SMALL, fill=GRAY)
+        return
+
+    block_h = 39
+    for ev in events:
+        if cy + block_h > y + h - 6:
+            break
+        meta = _event_meta(ev, today)
+        title = str(ev.get("title", ""))
+        title = _fit_text(draw, title, FONT_MED, w - 2 * PAD)
+        _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
+        _text(draw, (x + PAD, cy + 17), title, FONT_MED)
+        cy += block_h
+
+
+def _school_today_rows(school: dict | None) -> list[dict]:
     rows = []
     for child in (school or {}).get("children", [])[:2]:
         if child.get("start") and child.get("end"):
-            continue
+            rows.append(child)
+    return rows
+
+
+def _next_school_group(school: dict | None) -> tuple[str | None, list[dict]]:
+    """Return the nearest next school date and children who attend that date."""
+    candidates = []
+    for child in (school or {}).get("children", [])[:2]:
         nxt = child.get("next_school_day") or {}
         if nxt.get("date") and nxt.get("start") and nxt.get("end"):
-            rows.append((child, nxt))
-    return rows
+            candidates.append((nxt["date"], child, nxt))
+    if not candidates:
+        return None, []
+    next_date = min(item[0] for item in candidates)
+    rows = [
+        {"name": child.get("name", "Lapsi"), "start": nxt["start"], "end": nxt["end"]}
+        for item_date, child, nxt in candidates if item_date == next_date
+    ]
+    return next_date, rows
 
 
 def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
                       school: dict | None, x: int, y: int, w: int, h: int):
-    """Today's panel: today's school summary first, then today's events."""
     stale = bool((calendar and calendar.get("_stale")) or (school and school.get("_stale")))
     _section_label(draw, x, y, "TÄNÄÄN", stale=stale)
-
     cy = y + PAD + 20
-    children = _today_school_children(school)
-    if children:
+
+    school_rows = _school_today_rows(school)
+    if school_rows:
         _text(draw, (x + PAD, cy), "KOULU", FONT_LABEL, fill=GRAY)
         cy += 17
-        for child in children:
-            name = str(child.get("name", "Lapsi"))
-            time_text = f"{child['start']}–{child['end']}"
-            _text(draw, (x + PAD, cy), name, FONT_SMALL)
-            _text(draw, (x + 105, cy), time_text, FONT_SMALL, fill=GRAY)
+        for child in school_rows:
+            _text(draw, (x + PAD, cy), str(child.get("name", "Lapsi")), FONT_SMALL)
+            _text(draw, (x + 105, cy), f"{child['start']}–{child['end']}", FONT_SMALL, fill=GRAY)
             cy += 24
         cy += 4
 
@@ -154,10 +209,10 @@ def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
     today_iso = date.today().isoformat()
     events = [ev for ev in events if ev.get("date") == today_iso]
 
-    if not events and not children:
+    if not school_rows and not events:
         _text(draw, (x + PAD, cy + 2), "Ei menoja tänään", FONT_SMALL, fill=GRAY)
         return
-    if not events:
+    if school_rows and not events:
         _text(draw, (x + PAD, cy + 2), "Ei muita menoja tänään", FONT_TINY, fill=GRAY)
         return
 
@@ -173,52 +228,39 @@ def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
 
 def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
                          school: dict | None, x: int, y: int, w: int, h: int):
-    """Upcoming panel: next school day on days off, then future events."""
     stale = bool((calendar and calendar.get("_stale")) or (school and school.get("_stale")))
     _section_label(draw, x, y, "TULEVAT", stale=stale)
     cy = y + PAD + 20
 
-    school_rows = _upcoming_school_children(school)
-    if school_rows:
-        dates = {nxt.get("date") for _, nxt in school_rows}
-        if len(dates) == 1:
-            date_label = _date_str(next(iter(dates)), weekday=True)
-            _text(draw, (x + PAD, cy), f"KOULU · {date_label}", FONT_LABEL, fill=GRAY)
-        else:
-            _text(draw, (x + PAD, cy), "KOULU", FONT_LABEL, fill=GRAY)
-        cy += 17
-
-        for child, nxt in school_rows:
-            name = str(child.get("name", "Lapsi"))
-            if len(dates) == 1:
-                time_text = f"{nxt['start']}–{nxt['end']}"
-            else:
-                time_text = f"{_date_str(nxt['date'], weekday=True)}  {nxt['start']}–{nxt['end']}"
-            _text(draw, (x + PAD, cy), name, FONT_SMALL)
-            _text(draw, (x + 105, cy), _fit_text(draw, time_text, FONT_SMALL, w - 117),
-                  FONT_SMALL, fill=GRAY)
-            cy += 24
-        cy += 4
-
-    events = (calendar or {}).get("events", [])
     today_iso = date.today().isoformat()
-    events = [ev for ev in events if ev.get("date", "") > today_iso]
+    events = [ev for ev in (calendar or {}).get("events", []) if ev.get("date", "") > today_iso]
+    events = _dedupe_future_events(events)
 
-    if not events and not school_rows:
-        _text(draw, (x + PAD, cy + 4), "Ei tulevia tapahtumia", FONT_SMALL, fill=GRAY)
-        return
+    next_date, school_rows = _next_school_group(school)
+    if next_date and school_rows:
+        _text(draw, (x + PAD, cy), f"KOULU · {_date_str(next_date, weekday=True)}", FONT_LABEL, fill=GRAY)
+        cy += 18
+        for child in school_rows:
+            if cy + 22 > y + h - 6:
+                break
+            _text(draw, (x + PAD, cy), str(child["name"]), FONT_SMALL)
+            _text(draw, (x + 105, cy), f"{child['start']}–{child['end']}", FONT_SMALL, fill=GRAY)
+            cy += 24
+        cy += 3
+
     if not events:
+        if not school_rows:
+            _text(draw, (x + PAD, cy + 2), "Ei tulevia tapahtumia", FONT_SMALL, fill=GRAY)
         return
 
-    block_h = 39
     for ev in events:
-        if cy + block_h > y + h - 6:
+        if cy + 36 > y + h - 6:
             break
         meta = _event_meta(ev, today=False)
         title = _fit_text(draw, str(ev.get("title", "")), FONT_MED, w - 2 * PAD)
         _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
         _text(draw, (x + PAD, cy + 17), title, FONT_MED)
-        cy += block_h
+        cy += 39
 
 
 def _draw_tasks(draw: ImageDraw.Draw, data: dict | None, x: int, y: int, w: int, h: int):

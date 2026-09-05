@@ -38,13 +38,49 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f) or {}
 
 
-def get_display():
-    """Selects the correct display driver based on the runtime environment."""
-    if platform.system() == "Linux" and platform.machine().startswith("aarch"):
+def _is_raspberry_pi() -> bool:
+    """Return True when running on an actual Raspberry Pi."""
+    if platform.system() != "Linux":
+        return False
+
+    for model_path in (
+        Path("/proc/device-tree/model"),
+        Path("/sys/firmware/devicetree/base/model"),
+    ):
+        try:
+            if model_path.exists() and "raspberry pi" in model_path.read_text(errors="ignore").lower():
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def get_display(config: dict):
+    """Select simulator or the configured Raspberry Pi display adapter."""
+    if not _is_raspberry_pi():
+        from display.simulator import SimulatorDisplay
+        return SimulatorDisplay()
+
+    display_cfg = config.get("display", {})
+    layout = display_cfg.get("layout", "legacy")
+    model = str(display_cfg.get("model") or "").strip().lower()
+
+    # Preserve old configs that did not have display.model yet.
+    if not model:
+        model = "waveshare_13in3k" if layout == "family_13in3" else "waveshare_7in5_v2"
+
+    if model in ("waveshare_13in3k", "13in3k", "13.3k"):
+        from display.epaper_13in3 import EPaper13in3Display
+        return EPaper13in3Display()
+
+    if model in ("waveshare_7in5_v2", "waveshare_7in5", "7in5", "7.5"):
         from display.epaper import EPaperDisplay
         return EPaperDisplay()
-    from display.simulator import SimulatorDisplay
-    return SimulatorDisplay()
+
+    raise RuntimeError(
+        f"Unknown display.model '{model}'. Supported models: "
+        "waveshare_13in3k, waveshare_7in5_v2"
+    )
 
 
 def feature_enabled(config: dict, name: str) -> bool:
@@ -157,6 +193,14 @@ def main():
             log.warning("partial_updates: no cells enabled in config; nothing to do")
             return
 
+        display = get_display(config)
+        if not getattr(display, "supports_partials", True):
+            log.warning(
+                "Partial refresh is disabled for display model %s; skipping this tick",
+                getattr(display, "model", "configured display"),
+            )
+            return
+
         def _load_cache(name):
             path = Path(f"cache/{name}.json")
             if not path.exists():
@@ -182,7 +226,6 @@ def main():
         regions = [(image.crop(partial_cells[name]["region"]), partial_cells[name]["region"])
                    for name in enabled]
         log.info("Partial-refresh: %s", ", ".join(enabled))
-        display = get_display()
         display.show_partials(regions, open_preview=args.preview)
         log.info("Done.")
         return
@@ -195,7 +238,7 @@ def main():
     log.info("Rendering image...")
     image = _render_dashboard(config, data, width, height)
 
-    display = get_display()
+    display = get_display(config)
     if args.full_refresh and hasattr(display, "show_full"):
         display.show_full(image, open_preview=args.preview)
     else:

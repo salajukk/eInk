@@ -1,28 +1,23 @@
 """Chronological family schedule panels for the roomy 13.3inch layout.
 
-Calendar events and the next school block come from separate data sources. This
-module merges them at render time so TÄNÄÄN and TULEVAT are shown in true date /
-time order instead of always placing school first.
+Calendar events and school schedules come from separate data sources. This
+module merges them at render time and presents both as one clean chronological
+list without exposing the source calendar name.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 from PIL import ImageDraw
 
 from render import (
     GRAY,
     PAD,
-    FONT_LABEL,
-    FONT_MED,
     FONT_SMALL,
-    FONT_TINY,
-    FONT_TINY_R,
     _date_str,
     _text,
 )
 from render_family import (
     _dedupe_future_events,
-    _event_meta,
     _fit_text,
     _next_school_group,
     _school_today_rows,
@@ -30,131 +25,145 @@ from render_family import (
 )
 
 
-def _event_sort_key(ev: dict) -> tuple[str, str, str]:
-    """Sort calendar entries by date, start time and title.
-
-    All-day events intentionally sort before timed entries on the same date.
-    """
-    event_date = str(ev.get("date") or "9999-12-31")
-    event_time = str(ev.get("time") or "00:00")[:5]
-    title = str(ev.get("title") or "").casefold()
-    return event_date, event_time, title
+def _entry_sort_key(entry: dict) -> tuple[str, str, str]:
+    """Sort schedule rows by date, start time and title."""
+    return (
+        str(entry.get("date") or "9999-12-31"),
+        str(entry.get("start") or "00:00")[:5],
+        str(entry.get("title") or "").casefold(),
+    )
 
 
-def _school_sort_key(day: str, rows: list[dict]) -> tuple[str, str, str]:
-    starts = [str(row.get("start"))[:5] for row in rows if row.get("start")]
-    first_start = min(starts) if starts else "00:00"
-    return day, first_start, "koulu"
+def _end_hhmm(value: str | None) -> str | None:
+    """Convert calendar end_time ISO value to HH:MM for display."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).strftime("%H:%M")
+    except (TypeError, ValueError):
+        return None
 
 
-def _draw_school_block(draw: ImageDraw.Draw, rows: list[dict], x: int, cy: int,
-                       bottom: int, date_label: str | None = None) -> int:
-    label = "KOULU"
-    if date_label:
-        label += f" · {_date_str(date_label, weekday=True)}"
-    if cy + 18 > bottom:
-        return bottom
+def _calendar_entry(ev: dict) -> dict:
+    return {
+        "date": ev.get("date"),
+        "start": ev.get("time"),
+        "end": _end_hhmm(ev.get("end_time")),
+        "title": str(ev.get("title", "")).strip(),
+        "all_day": bool(ev.get("all_day")),
+    }
 
-    _text(draw, (x + PAD, cy), label, FONT_LABEL, fill=GRAY)
-    cy += 18
+
+def _school_entries(day: str, rows: list[dict]) -> list[dict]:
+    entries = []
     for child in rows:
-        if cy + 22 > bottom:
-            return bottom
-        _text(draw, (x + PAD, cy), str(child.get("name", "Lapsi")), FONT_SMALL)
-        _text(draw, (x + 105, cy),
-              f"{child.get('start', '')}–{child.get('end', '')}",
-              FONT_SMALL, fill=GRAY)
-        cy += 24
-    return cy + 3
+        start = str(child.get("start") or "").strip()
+        end = str(child.get("end") or "").strip()
+        if not start or not end:
+            continue
+        entries.append({
+            "date": day,
+            "start": start,
+            "end": end,
+            "title": f"{child.get('name', 'Lapsi')} koulu",
+            "all_day": False,
+        })
+    return entries
 
 
-def _draw_calendar_event(draw: ImageDraw.Draw, ev: dict, x: int, cy: int,
-                         w: int, bottom: int, today: bool) -> int:
-    if cy + 36 > bottom:
-        return bottom
-    meta = _event_meta(ev, today=today)
-    title = _fit_text(draw, str(ev.get("title", "")), FONT_MED, w - 2 * PAD)
-    _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
-    _text(draw, (x + PAD, cy + 17), title, FONT_MED)
-    return cy + 39
+def _format_time_range(entry: dict) -> str:
+    if entry.get("all_day"):
+        return ""
+
+    start = str(entry.get("start") or "").strip()
+    end = str(entry.get("end") or "").strip()
+    if not start:
+        return ""
+    if end and end != start:
+        return f"{start} - {end}"
+    return start
+
+
+def _format_entry(draw: ImageDraw.Draw, entry: dict, max_width: int) -> str:
+    """Return one compact schedule line.
+
+    Examples:
+      Su 6.9. Neven ja Seran uimahyppy treenit 16:45 - 17:30
+      Ma 7.9. Neve koulu 09:00 - 14:00
+      Ma 14.9. Neve sirkus 17:00 - 17:45
+    """
+    day = _date_str(str(entry.get("date") or ""), weekday=True).capitalize()
+    title = str(entry.get("title") or "").strip()
+    time_range = _format_time_range(entry)
+    line = " ".join(part for part in (day, title, time_range) if part)
+    return _fit_text(draw, line, FONT_SMALL, max_width)
+
+
+def _draw_panel(draw: ImageDraw.Draw, label: str, entries: list[dict],
+                x: int, y: int, w: int, h: int,
+                empty_text: str, stale: bool = False):
+    _section_label(draw, x, y, label, stale=stale)
+    cy = y + PAD + 20
+    bottom = y + h - 6
+
+    if not entries:
+        _text(draw, (x + PAD, cy + 2), empty_text, FONT_SMALL, fill=GRAY)
+        return
+
+    entries.sort(key=_entry_sort_key)
+    row_h = 30
+    for entry in entries:
+        if cy + row_h > bottom:
+            break
+        line = _format_entry(draw, entry, w - 2 * PAD)
+        _text(draw, (x + PAD, cy), line, FONT_SMALL)
+        cy += row_h
 
 
 def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
                       school: dict | None, x: int, y: int, w: int, h: int):
-    """Draw today's school and calendar entries in chronological order."""
+    """Show the whole current day, including calendar events already ended."""
     stale = bool((calendar and calendar.get("_stale")) or
                  (school and school.get("_stale")))
-    _section_label(draw, x, y, "TÄNÄÄN", stale=stale)
-    cy = y + PAD + 20
-    bottom = y + h - 6
     today_iso = date.today().isoformat()
 
     events = [
-        ev for ev in (calendar or {}).get("events", [])
+        _calendar_entry(ev)
+        for ev in (calendar or {}).get("events", [])
         if ev.get("date") == today_iso
     ]
-    events.sort(key=_event_sort_key)
-    school_rows = _school_today_rows(school)
+    events.extend(_school_entries(today_iso, _school_today_rows(school)))
 
-    items = []
-    if school_rows:
-        items.append((_school_sort_key(today_iso, school_rows), "school", school_rows))
-    for ev in events:
-        items.append((_event_sort_key(ev), "event", ev))
-    items.sort(key=lambda item: item[0])
-
-    if not items:
-        _text(draw, (x + PAD, cy + 2), "Ei menoja tänään", FONT_SMALL, fill=GRAY)
-        return
-
-    for _, kind, payload in items:
-        if cy >= bottom:
-            break
-        if kind == "school":
-            cy = _draw_school_block(draw, payload, x, cy, bottom)
-        else:
-            cy = _draw_calendar_event(draw, payload, x, cy, w, bottom, today=True)
-
-    if school_rows and not events and cy + 18 <= bottom:
-        _text(draw, (x + PAD, cy), "Ei muita menoja tänään", FONT_TINY, fill=GRAY)
+    _draw_panel(
+        draw, "TÄNÄÄN", events, x, y, w, h,
+        empty_text="Ei menoja tänään", stale=stale,
+    )
 
 
 def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
                          school: dict | None, x: int, y: int, w: int, h: int):
-    """Merge next school day and calendar events into one chronological list."""
+    """Merge future calendar events and the next school day chronologically."""
     stale = bool((calendar and calendar.get("_stale")) or
                  (school and school.get("_stale")))
-    _section_label(draw, x, y, "TULEVAT", stale=stale)
-    cy = y + PAD + 20
-    bottom = y + h - 6
     today_iso = date.today().isoformat()
 
-    events = [
+    calendar_events = [
         ev for ev in (calendar or {}).get("events", [])
         if ev.get("date", "") > today_iso
     ]
-    events.sort(key=_event_sort_key)
-    events = _dedupe_future_events(events)
-    events.sort(key=_event_sort_key)
+    calendar_events.sort(key=lambda ev: (
+        str(ev.get("date") or ""),
+        str(ev.get("time") or "00:00"),
+        str(ev.get("title") or "").casefold(),
+    ))
+    calendar_events = _dedupe_future_events(calendar_events)
+    entries = [_calendar_entry(ev) for ev in calendar_events]
 
     next_date, school_rows = _next_school_group(school)
-
-    items = []
     if next_date and school_rows:
-        items.append((_school_sort_key(next_date, school_rows), "school", (next_date, school_rows)))
-    for ev in events:
-        items.append((_event_sort_key(ev), "event", ev))
-    items.sort(key=lambda item: item[0])
+        entries.extend(_school_entries(next_date, school_rows))
 
-    if not items:
-        _text(draw, (x + PAD, cy + 2), "Ei tulevia tapahtumia", FONT_SMALL, fill=GRAY)
-        return
-
-    for _, kind, payload in items:
-        if cy >= bottom:
-            break
-        if kind == "school":
-            school_date, rows = payload
-            cy = _draw_school_block(draw, rows, x, cy, bottom, date_label=school_date)
-        else:
-            cy = _draw_calendar_event(draw, payload, x, cy, w, bottom, today=False)
+    _draw_panel(
+        draw, "TULEVAT", entries, x, y, w, h,
+        empty_text="Ei tulevia tapahtumia", stale=stale,
+    )

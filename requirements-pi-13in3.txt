@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Raspberry Pi hardware support for Waveshare 13.3inch e-Paper HAT (K).
+# Pin the vendor driver revision so a future Waveshare change cannot silently
+# break a deployed family dashboard.
+gpiozero
+spidev
+git+https://github.com/waveshareteam/e-Paper.git@a794fbc39656b0f93938d1ffb3fdc77eaed9e9fc#subdirectory=RaspberryPi_JetsonNano/python

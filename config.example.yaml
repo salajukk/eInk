@@ -99,26 +99,27 @@ evaka:
   base_url: "https://espoonvarhaiskasvatus.fi"
 
 # ── Display ──────────────────────────────────────────────────────────────────
-# 7.5inch Waveshare V2 / current family layout:
+# Recommended family wall display: Waveshare 13.3inch e-Paper HAT (K), 960x680.
 display:
-  width: 800
-  height: 480
+  model: "waveshare_13in3k"
+  width: 960
+  height: 680
   rotation: 0
-  layout: "family"   # "family", "family_13in3" or original "legacy"
+  layout: "family_13in3"
 
-# For the Waveshare 13.3inch e-Paper HAT (K), use instead:
+# For the original Waveshare 7.5inch V2, use instead:
 # display:
-#   model: "waveshare_13in3k"
-#   width: 960
-#   height: 680
+#   model: "waveshare_7in5_v2"
+#   width: 800
+#   height: 480
 #   rotation: 0
-#   layout: "family_13in3"
+#   layout: "family"
 
 # ── Partial updates ──────────────────────────────────────────────────────────
-# Clock can update every minute without API calls. Turn HSL on here only when
-# features.hsl is also enabled.
+# Keep these off for waveshare_13in3k until partial refresh has been verified
+# on the physical panel. The 7.5inch adapter supports them.
 partial_updates:
-  clock: true
+  clock: false
   hsl: false
 
 # ── Cache TTLs ───────────────────────────────────────────────────────────────

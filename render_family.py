@@ -143,6 +143,63 @@ def _draw_events(draw: ImageDraw.Draw, data: dict | None, x: int, y: int,
         cy += block_h
 
 
+def _school_time_text(child: dict) -> str:
+    """Return today's school time, or the next school day on days off."""
+    start = child.get("start")
+    end = child.get("end")
+    if start and end:
+        return f"{start}–{end}"
+
+    nxt = child.get("next_school_day") or {}
+    next_start = nxt.get("start")
+    next_end = nxt.get("end")
+    next_date = nxt.get("date")
+    if next_start and next_end and next_date:
+        return f"{_date_str(next_date, weekday=True)}  {next_start}–{next_end}"
+    return "Ei koulua"
+
+
+def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
+                      school: dict | None, x: int, y: int, w: int, h: int):
+    """Today's panel: school-day summary first, then today's calendar events."""
+    stale = bool((calendar and calendar.get("_stale")) or (school and school.get("_stale")))
+    _section_label(draw, x, y, "TÄNÄÄN", stale=stale)
+
+    cy = y + PAD + 20
+    children = (school or {}).get("children", [])[:2]
+    if children:
+        _text(draw, (x + PAD, cy), "KOULU", FONT_LABEL, fill=GRAY)
+        cy += 17
+        for child in children:
+            name = str(child.get("name", "Lapsi"))
+            time_text = _school_time_text(child)
+            _text(draw, (x + PAD, cy), name, FONT_SMALL)
+            _text(draw, (x + 105, cy), _fit_text(draw, time_text, FONT_SMALL, w - 117),
+                  FONT_SMALL, fill=GRAY)
+            cy += 24
+        cy += 4
+    else:
+        _text(draw, (x + PAD, cy), "KOULU  Ei tietoja", FONT_TINY_R, fill=GRAY)
+        cy += 27
+
+    events = (calendar or {}).get("events", [])
+    today_iso = date.today().isoformat()
+    events = [ev for ev in events if ev.get("date") == today_iso]
+
+    if not events:
+        _text(draw, (x + PAD, cy + 2), "Ei muita menoja tänään", FONT_TINY, fill=GRAY)
+        return
+
+    for ev in events:
+        if cy + 36 > y + h - 6:
+            break
+        meta = _event_meta(ev, today=True)
+        title = _fit_text(draw, str(ev.get("title", "")), FONT_MED, w - 2 * PAD)
+        _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
+        _text(draw, (x + PAD, cy + 17), title, FONT_MED)
+        cy += 39
+
+
 def _draw_tasks(draw: ImageDraw.Draw, data: dict | None, x: int, y: int, w: int, h: int):
     _section_label(draw, x, y, "MUISTETTAVAA")
     items = (data or {}).get("items", [])[:3]
@@ -187,12 +244,7 @@ def render(weather: dict | None = None, calendar: dict | None = None,
            tasks: dict | None = None, school: dict | None = None,
            hsl: dict | None = None, width: int = WIDTH, height: int = HEIGHT,
            title: str = "PERHEEN NÄYTTÖ") -> Image.Image:
-    """Render the family dashboard.
-
-    `school` is accepted here so the data module can be tested independently
-    before its final visual placement is added to the family layout.
-    The current layout is designed for the Waveshare 7.5" V2 (800×480).
-    """
+    """Render the family dashboard for the Waveshare 7.5" V2 (800×480)."""
     if width != WIDTH or height != HEIGHT:
         raise ValueError("Family layout currently supports only 800×480 displays")
 
@@ -201,7 +253,7 @@ def render(weather: dict | None = None, calendar: dict | None = None,
 
     _draw_now_band(draw, weather, hsl, title, width)
     _vertical_divider(draw, HALF_W, CONTENT_Y + 8, TASKS_Y - 8)
-    _draw_events(draw, calendar, 0, CONTENT_Y, HALF_W, CONTENT_H, today=True)
+    _draw_today_panel(draw, calendar, school, 0, CONTENT_Y, HALF_W, CONTENT_H)
     _draw_events(draw, calendar, HALF_W + 1, CONTENT_Y, width - HALF_W - 1, CONTENT_H, today=False)
 
     _divider(draw, 0, TASKS_Y, width)

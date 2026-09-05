@@ -28,9 +28,11 @@ from render import (
 from render_family import (
     _draw_forecast,
     _draw_tasks,
+    _fit_text,
+)
+from render_family_schedule import (
     _draw_today_panel,
     _draw_upcoming_panel,
-    _fit_text,
 )
 
 WIDTH, HEIGHT = 960, 680

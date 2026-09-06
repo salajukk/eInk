@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 from render import (
     BG,
     FG,
+    GRAY,
     PAD,
     FONT_CLOCK72,
     FONT_HERO,
@@ -20,6 +21,7 @@ from render import (
     FONT_TINY,
     FONT_TINY_R,
     _DAYS_FI,
+    _date_str,
     _divider,
     _draw_weather_icon,
     _load_font,
@@ -30,6 +32,7 @@ from render_family import (
     _draw_forecast,
     _draw_tasks,
     _fit_text,
+    _section_label,
 )
 from render_family_schedule import (
     _draw_today_panel,
@@ -45,6 +48,7 @@ TASKS_H = 70
 FORECAST_Y = TASKS_Y + TASKS_H
 FORECAST_H = HEIGHT - FORECAST_Y
 HALF_W = WIDTH // 2
+TASKS_SPLIT_X = 560
 
 # The departure board is intentionally larger than the secondary dashboard text.
 # It should be possible to glance at the next bus/train times from a few metres away.
@@ -142,8 +146,42 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
           FONT_TINY_R, fill=BG, anchor="rm")
 
 
+def _school_reminder_text(item: dict) -> str:
+    """Compact one-line representation for the school-reminder strip."""
+    day = _date_str(str(item.get("date") or ""), weekday=True).capitalize()
+    title = str(item.get("title") or "").strip()
+    remember = [str(value).strip() for value in item.get("remember") or [] if str(value).strip()]
+    parts = [part for part in (day, title) if part]
+    text = " ".join(parts)
+    if remember:
+        text += (" · " if text else "") + " · ".join(remember)
+    return text
+
+
+def _draw_school_reminders(draw: ImageDraw.Draw, data: dict | None,
+                           x: int, y: int, w: int, h: int):
+    """Show at most two nearest standalone Wilma-message reminders."""
+    stale = bool(data and data.get("_stale"))
+    _section_label(draw, x, y, "KOULUSTA MUISTETTAVAA", stale=stale)
+    items = list((data or {}).get("standalone") or [])
+    items.sort(key=lambda item: (str(item.get("date") or ""), str(item.get("title") or "")))
+    items = items[:2]
+
+    cy = y + 29
+    max_width = w - 2 * PAD
+    if not items:
+        _text(draw, (x + PAD, cy), "Ei koulumuistutuksia", FONT_TINY_R, fill=GRAY)
+        return
+
+    for item in items:
+        text = _fit_text(draw, _school_reminder_text(item), FONT_TINY, max_width)
+        _text(draw, (x + PAD, cy), text, FONT_TINY)
+        cy += 20
+
+
 def render(weather: dict | None = None, calendar: dict | None = None,
            tasks: dict | None = None, school: dict | None = None,
+           school_reminders: dict | None = None,
            hsl: dict | None = None, width: int = WIDTH, height: int = HEIGHT,
            title: str = "PERHEEN NÄYTTÖ") -> Image.Image:
     """Render the 13.3inch family dashboard at exactly 960×680 pixels."""
@@ -156,12 +194,23 @@ def render(weather: dict | None = None, calendar: dict | None = None,
     _draw_now_band(draw, weather, hsl, title, width)
 
     _vertical_divider(draw, HALF_W, CONTENT_Y + 10, TASKS_Y - 10)
-    _draw_today_panel(draw, calendar, school, 0, CONTENT_Y, HALF_W, CONTENT_H)
-    _draw_upcoming_panel(draw, calendar, school, HALF_W + 1, CONTENT_Y,
-                         width - HALF_W - 1, CONTENT_H)
+    _draw_today_panel(
+        draw, calendar, school, 0, CONTENT_Y, HALF_W, CONTENT_H,
+        school_reminders=school_reminders,
+    )
+    _draw_upcoming_panel(
+        draw, calendar, school, HALF_W + 1, CONTENT_Y,
+        width - HALF_W - 1, CONTENT_H,
+        school_reminders=school_reminders,
+    )
 
     _divider(draw, 0, TASKS_Y, width)
-    _draw_tasks(draw, tasks, 0, TASKS_Y, width, TASKS_H)
+    _vertical_divider(draw, TASKS_SPLIT_X, TASKS_Y + 8, FORECAST_Y - 8)
+    _draw_tasks(draw, tasks, 0, TASKS_Y, TASKS_SPLIT_X, TASKS_H)
+    _draw_school_reminders(
+        draw, school_reminders, TASKS_SPLIT_X + 1, TASKS_Y,
+        width - TASKS_SPLIT_X - 1, TASKS_H,
+    )
 
     _divider(draw, 0, FORECAST_Y, width)
     _draw_forecast(draw, weather, 0, FORECAST_Y, width, FORECAST_H)

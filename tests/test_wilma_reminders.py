@@ -43,6 +43,18 @@ class WilmaReminderTests(unittest.TestCase):
             ],
         )
 
+    def test_message_subject_can_supply_exam_subject_context(self):
+        message = {
+            "id": "exam-subject",
+            "subject": "Matematiikka",
+            "body": "Tiistaina pidämme pienen kokeen.",
+        }
+        reminders = analyze_message(message, date(2026, 9, 14))
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0]["date"], "2026-09-15")
+        self.assertEqual(reminders[0]["title"], "Matematiikan koe")
+        self.assertGreaterEqual(reminders[0]["confidence"], 0.9)
+
     def test_informational_message_is_ignored(self):
         reminders = analyze_message(self.messages["info-1"], date(2026, 9, 14))
         self.assertEqual(reminders, [])

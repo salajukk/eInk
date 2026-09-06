@@ -38,6 +38,8 @@ Goals of the MVP:
 
 The MVP should avoid tablet-specific features that would make later e-paper migration difficult. Prefer a simple full-screen/kiosk-style presentation of the rendered dashboard and automatic refreshes.
 
+The first browser output is implemented in `web_dashboard.py`. It reuses the existing data modules and `render_family_13in3.py`, writes the same 960x680 dashboard to `output/dashboard.png`, and serves it to the Android browser over the trusted home LAN. It intentionally does not reimplement the dashboard as an HTML UI. Default render interval is 60 seconds and default HTTP port is 8080. See `FAMILY_DASHBOARD.md` for startup/testing instructions.
+
 Decision gate: only purchase/build the dedicated roughly 250 € Raspberry Pi + 13.3inch e-paper setup if the kitchen-tablet test demonstrates that the always-visible dashboard is genuinely useful to the family.
 
 ## Hardware – planned e-paper phase
@@ -77,7 +79,9 @@ The design goal is a thin, light object that looks like a normal framed picture 
 
 ## Current software state
 
-The 13.3inch simulator layout is working at 960x680. Current data sources/features include:
+The 13.3inch simulator layout is working at 960x680. The Android MVP now has a browser-friendly output path in `web_dashboard.py`, which keeps the same renderer and serves the generated PNG to a tablet without invoking e-paper hardware.
+
+Current data sources/features include:
 
 - weather
 - Google/family calendars through private iCal feeds
@@ -89,7 +93,7 @@ Today's events remain visible for the whole day, even after their end time. Cale
 
 Google Tasks integration is a later backlog item. The intended future behaviour is to merge both users' open personal Google Tasks into one nameless `MUISTETTAVAA` list without owner prefixes.
 
-Software changes for the Android MVP should be small and controlled. Prefer adding an Android/browser-friendly output/deployment path around the existing rendering and data logic rather than duplicating the dashboard implementation. The e-paper adapter and existing display support should remain available for the later hardware phase.
+Software changes for the Android MVP should remain small and controlled. Continue improving the browser/output deployment path around the existing rendering and data logic rather than duplicating the dashboard implementation. The e-paper adapter and existing display support should remain available for the later hardware phase.
 
 ## Privacy / secrets
 

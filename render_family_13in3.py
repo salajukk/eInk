@@ -22,6 +22,7 @@ from render import (
     _DAYS_FI,
     _divider,
     _draw_weather_icon,
+    _load_font,
     _text,
     _vertical_divider,
 )
@@ -44,6 +45,11 @@ TASKS_H = 70
 FORECAST_Y = TASKS_Y + TASKS_H
 FORECAST_H = HEIGHT - FORECAST_Y
 HALF_W = WIDTH // 2
+
+# The departure board is intentionally larger than the secondary dashboard text.
+# It should be possible to glance at the next bus/train times from a few metres away.
+FONT_HSL = _load_font(20, bold=True)
+FONT_HSL_LABEL = _load_font(15)
 
 
 def _hsl_departure_row(stop: dict) -> str | None:
@@ -93,8 +99,9 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
     _text(draw, (dx, mid + 26), f"{now.day}.{now.month}.", FONT_MED,
           fill=BG, anchor="ls")
 
-    # Weather block in the middle.
-    wx = 390
+    # Weather block in the middle. Keep it compact enough to give the departure
+    # board more horizontal room without changing the overall top-band structure.
+    wx = 350
     if weather:
         _draw_weather_icon(draw, wx, mid - 28,
                            weather.get("icon", "unknown"),
@@ -104,14 +111,15 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
         _text(draw, (wx + 68, mid), temp_str, FONT_HERO, fill=BG, anchor="lm")
         tx = wx + 68 + int(draw.textlength(temp_str, font=FONT_HERO)) + 12
         condition = weather.get("condition_fi") or weather.get("condition") or ""
-        _text(draw, (tx, mid - 19), _fit_text(draw, condition, FONT_TINY, 120),
+        _text(draw, (tx, mid - 19), _fit_text(draw, condition, FONT_TINY, 90),
               FONT_TINY, fill=BG)
         hi, lo = weather.get("forecast_today_high"), weather.get("forecast_today_low")
         if hi is not None and lo is not None:
             _text(draw, (tx, mid + 4), f"{lo:.0f}° … {hi:.0f}°",
                   FONT_TINY_R, fill=BG)
 
-    # HSL departure board on the right.
+    # HSL departure board on the right. The larger type is a deliberate MVP
+    # choice: these are among the most distance-critical values on the screen.
     stop_boards = (hsl or {}).get("stops") or []
     if stop_boards:
         rows = []
@@ -120,12 +128,12 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
             rows.append(row or f"{stop.get('name', 'Pysäkki')}  ei lähtöjä")
 
         right = w - 20
-        max_width = 305
-        _text(draw, (right, 22), "LÄHDÖT", FONT_TINY_R, fill=BG, anchor="ra")
+        max_width = 340
+        _text(draw, (right, 18), "LÄHDÖT", FONT_HSL_LABEL, fill=BG, anchor="ra")
         for idx, row in enumerate(rows[:2]):
-            y = 54 + idx * 35
-            _text(draw, (right, y), _fit_text(draw, row, FONT_TINY, max_width),
-                  FONT_TINY, fill=BG, anchor="ra")
+            y = 48 + idx * 42
+            _text(draw, (right, y), _fit_text(draw, row, FONT_HSL, max_width),
+                  FONT_HSL, fill=BG, anchor="ra")
         return
 
     # Keep a useful identity block when HSL is disabled.

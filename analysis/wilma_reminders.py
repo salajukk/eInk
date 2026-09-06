@@ -10,7 +10,9 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-ANALYZER_VERSION = "rules-v1"
+# Included in the message hash so cached reminders are re-analyzed when the
+# conservative rules change.
+ANALYZER_VERSION = "rules-v2"
 
 WEEKDAYS = {
     "maanantaina": 0,
@@ -24,14 +26,23 @@ WEEKDAYS = {
 
 SUBJECTS = {
     "matematiikan": "Matematiikan",
+    "matematiikka": "Matematiikan",
     "äidinkielen": "Äidinkielen",
+    "äidinkieli": "Äidinkielen",
     "englannin": "Englannin",
+    "englanti": "Englannin",
     "ruotsin": "Ruotsin",
+    "ruotsi": "Ruotsin",
     "ympäristöopin": "Ympäristöopin",
+    "ympäristöoppi": "Ympäristöopin",
     "historian": "Historian",
+    "historia": "Historian",
     "biologian": "Biologian",
+    "biologia": "Biologian",
     "fysiikan": "Fysiikan",
+    "fysiikka": "Fysiikan",
     "kemian": "Kemian",
+    "kemia": "Kemian",
 }
 
 EVENT_RULES = (
@@ -83,10 +94,10 @@ def resolve_date(text: str, reference_date: date) -> date | None:
     return None
 
 
-def _subject_in(sentence: str) -> str | None:
-    lower = sentence.casefold()
+def _subject_in(text: str) -> str | None:
+    lower = text.casefold()
     for token, label in SUBJECTS.items():
-        if token in lower:
+        if re.search(rf"\b{re.escape(token)}\b", lower):
             return label
     return None
 
@@ -157,7 +168,10 @@ def analyze_message(message: dict, reference_date: date) -> list[dict]:
 
     message_id = str(message.get("id") or "")
     current_date: date | None = None
-    subject_context: str | None = None
+    # A concise Wilma subject such as "Matematiikka" is useful context for a
+    # later sentence that only says "pidämme kokeen". Body text can still
+    # replace this when it names another supported subject more explicitly.
+    subject_context: str | None = _subject_in(str(message.get("subject") or ""))
     active_by_date: dict[str, dict] = {}
     reminders: list[dict] = []
 

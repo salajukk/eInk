@@ -4,9 +4,13 @@ This file is the short shared context for conversations about the software, hard
 
 ## What we are building
 
-A lightweight wall-mounted family information display for the home. The display uses e-paper so it looks more like a framed information board than a conventional tablet. The dashboard combines the family's useful daily information into one glanceable view: clock/date, weather, HSL departures, today's and upcoming calendar/school events, reminders and forecast.
+A lightweight family information display for the home. The dashboard combines the family's useful daily information into one glanceable view: clock/date, weather, HSL departures, today's and upcoming calendar/school events, reminders and forecast.
 
-The current target is a 13.3inch black/white e-paper panel with a 960x680 dashboard. Layout details can be refined later; the current priority is to get the complete software + Raspberry Pi + display hardware chain working reliably.
+The long-term target remains a 13.3inch black/white e-paper panel with a 960x680 dashboard, designed to look more like a framed information board than a conventional tablet. Before purchasing the roughly 250 € e-paper + Raspberry Pi hardware setup, the concept will first be tested in everyday use on an existing Android tablet placed in the kitchen.
+
+The Android phase is an MVP of the **same dashboard**, not a separate tablet product. Keep the dashboard content, layout and visual constraints e-paper-compatible: 960x680 target canvas, black/white presentation, glanceable single-screen layout, and no dependency on animations, scrolling or tablet-only interaction. The MVP can be iterated and improved while running on the tablet. If the family finds that having the view continuously visible is valuable enough to justify the dedicated hardware, the same dashboard should then be moved to Raspberry Pi + 13.3inch e-paper by changing/adapting the display output layer rather than redesigning the view.
+
+Current priority is therefore to validate the usefulness and content of the continuously visible family dashboard on Android while preserving a straightforward migration path to the planned e-paper hardware.
 
 ## Repository
 
@@ -18,11 +22,27 @@ Active development branch:
 
 `family-dashboard-v1`
 
-Keep the current pull request as draft until the real Raspberry Pi + 13.3inch e-paper hardware has been tested successfully.
+Keep the current pull request as draft until Google Calendar, Wilma and HSL have been tested in the MVP and the real Raspberry Pi + 13.3inch e-paper hardware has later been tested successfully.
 
-## Hardware – current plan
+## MVP – Android tablet
 
-Primary hardware:
+The first real-life deployment uses an existing Android tablet with a stand in the kitchen.
+
+Goals of the MVP:
+
+- test whether a continuously visible family dashboard provides enough everyday value to justify dedicated e-paper hardware
+- keep the current dashboard view and continue improving its content/layout during the test
+- preserve the 960x680 black/white e-paper design constraints throughout the MVP
+- keep data fetching and dashboard rendering as device-independent as practical
+- treat Android and future e-paper support as different display/output targets for the same dashboard
+
+The MVP should avoid tablet-specific features that would make later e-paper migration difficult. Prefer a simple full-screen/kiosk-style presentation of the rendered dashboard and automatic refreshes.
+
+Decision gate: only purchase/build the dedicated roughly 250 € Raspberry Pi + 13.3inch e-paper setup if the kitchen-tablet test demonstrates that the always-visible dashboard is genuinely useful to the family.
+
+## Hardware – planned e-paper phase
+
+Primary hardware, if/when the MVP validates the concept:
 
 - Raspberry Pi 3 Model A+
 - Waveshare 13.3inch e-Paper HAT (K), black/white, 960x680, SPI
@@ -31,11 +51,13 @@ Primary hardware:
 
 The Waveshare HAT connects to the Raspberry Pi GPIO/SPI interface and the display is powered through the Pi/HAT setup. The finished wall unit therefore needs only one external power cable to the Raspberry Pi.
 
-A powerbank is **not** part of the first version. It can be reconsidered later if wall power placement proves inconvenient.
+A powerbank is **not** part of the first dedicated e-paper version. It can be reconsidered later if wall power placement proves inconvenient.
 
 The 13.3inch hardware adapter is implemented in `display/epaper_13in3.py`. Partial refresh is intentionally disabled until it has been verified on the physical panel; initial hardware tests use safe whole-screen refreshes.
 
-## Frame / enclosure – current plan
+Keep existing 7.5inch display support intact unless there is a separate reason to change it.
+
+## Frame / enclosure – planned e-paper phase
 
 The first enclosure should contain only:
 
@@ -66,6 +88,8 @@ The 13.3inch simulator layout is working at 960x680. Current data sources/featur
 Today's events remain visible for the whole day, even after their end time. Calendar and school entries are merged chronologically and displayed without calendar-source labels.
 
 Google Tasks integration is a later backlog item. The intended future behaviour is to merge both users' open personal Google Tasks into one nameless `MUISTETTAVAA` list without owner prefixes.
+
+Software changes for the Android MVP should be small and controlled. Prefer adding an Android/browser-friendly output/deployment path around the existing rendering and data logic rather than duplicating the dashboard implementation. The e-paper adapter and existing display support should remain available for the later hardware phase.
 
 ## Privacy / secrets
 

@@ -12,7 +12,7 @@ from datetime import date, timedelta
 
 # Included in the message hash so cached reminders are re-analyzed when the
 # conservative rules change.
-ANALYZER_VERSION = "rules-v2"
+ANALYZER_VERSION = "rules-v3"
 
 WEEKDAYS = {
     "maanantaina": 0,
@@ -143,7 +143,14 @@ def _remember_items(sentence: str) -> list[str]:
     return result
 
 
-def _new_reminder(title: str, when: date, confidence: float, message_id: str) -> dict:
+def _new_reminder(
+    title: str,
+    when: date,
+    confidence: float,
+    message_id: str,
+    student: str | None = None,
+    student_id: str | None = None,
+) -> dict:
     return {
         "title": title,
         "date": when.isoformat(),
@@ -153,6 +160,8 @@ def _new_reminder(title: str, when: date, confidence: float, message_id: str) ->
         "confidence": confidence,
         "source": "wilma_message",
         "source_message_id": message_id,
+        "student": student,
+        "student_id": student_id,
     }
 
 
@@ -160,13 +169,17 @@ def analyze_message(message: dict, reference_date: date) -> list[dict]:
     """Extract only high-confidence actionable reminders from one message.
 
     Dates must be resolvable. Informational sentences without a concrete event,
-    deadline or supported action produce no reminder.
+    deadline or supported action produce no reminder. The child attached to the
+    Wilma inbox is carried through as source context; it is not inferred from the
+    free-form message text.
     """
     body = str(message.get("body") or "").strip()
     if not body:
         return []
 
     message_id = str(message.get("id") or "")
+    student = str(message.get("student") or "").strip() or None
+    student_id = str(message.get("student_id") or "").strip() or None
     current_date: date | None = None
     # A concise Wilma subject such as "Matematiikka" is useful context for a
     # later sentence that only says "pidämme kokeen". Body text can still
@@ -190,14 +203,20 @@ def analyze_message(message: dict, reference_date: date) -> list[dict]:
         event = _event_title(sentence, subject_context)
         if event:
             title, confidence = event
-            reminder = _new_reminder(title, current_date, confidence, message_id)
+            reminder = _new_reminder(
+                title, current_date, confidence, message_id,
+                student=student, student_id=student_id,
+            )
             reminders.append(reminder)
             active_by_date[current_date.isoformat()] = reminder
 
         action = _standalone_action(sentence)
         if action and not event:
             title, confidence = action
-            reminder = _new_reminder(title, current_date, confidence, message_id)
+            reminder = _new_reminder(
+                title, current_date, confidence, message_id,
+                student=student, student_id=student_id,
+            )
             reminders.append(reminder)
             active_by_date[current_date.isoformat()] = reminder
 
@@ -216,5 +235,11 @@ def analyze_messages(messages: list[dict], reference_date: date) -> list[dict]:
     reminders = []
     for message in messages:
         reminders.extend(analyze_message(message, reference_date))
-    reminders.sort(key=lambda item: (item.get("date") or "", item.get("title") or ""))
+    reminders.sort(
+        key=lambda item: (
+            item.get("date") or "",
+            item.get("student") or "",
+            item.get("title") or "",
+        )
+    )
     return reminders

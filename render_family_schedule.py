@@ -17,12 +17,13 @@ from render import (
     _text,
 )
 from render_family import (
-    _dedupe_future_events,
-    _fit_text,
     _next_school_group,
     _school_today_rows,
     _section_label,
 )
+
+
+UPCOMING_LIMIT = 6
 
 
 def _entry_sort_key(entry: dict) -> tuple[str, str, str]:
@@ -84,24 +85,37 @@ def _format_time_range(entry: dict) -> str:
     return start
 
 
-def _format_entry(draw: ImageDraw.Draw, entry: dict, max_width: int) -> str:
-    """Return one compact schedule line.
-
-    Examples:
-      Su 6.9. Neven ja Seran uimahyppy treenit 16:45 - 17:30
-      Ma 7.9. Neve koulu 09:00 - 14:00
-      Ma 14.9. Neve sirkus 17:00 - 17:45
-    """
+def _entry_text(entry: dict) -> str:
+    """Return the complete display text for one schedule occurrence."""
     day = _date_str(str(entry.get("date") or ""), weekday=True).capitalize()
     title = str(entry.get("title") or "").strip()
     time_range = _format_time_range(entry)
-    line = " ".join(part for part in (day, title, time_range) if part)
-    return _fit_text(draw, line, FONT_SMALL, max_width)
+    return " ".join(part for part in (day, title, time_range) if part)
+
+
+def _wrap_text(draw: ImageDraw.Draw, text: str, max_width: int) -> list[str]:
+    """Wrap text by words without ellipsising any part of the event."""
+    words = text.split()
+    if not words:
+        return [""]
+
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        if draw.textlength(candidate, font=FONT_SMALL) <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
 
 
 def _draw_panel(draw: ImageDraw.Draw, label: str, entries: list[dict],
                 x: int, y: int, w: int, h: int,
-                empty_text: str, stale: bool = False):
+                empty_text: str, stale: bool = False,
+                max_entries: int | None = None):
     _section_label(draw, x, y, label, stale=stale)
     cy = y + PAD + 20
     bottom = y + h - 6
@@ -110,14 +124,23 @@ def _draw_panel(draw: ImageDraw.Draw, label: str, entries: list[dict],
         _text(draw, (x + PAD, cy + 2), empty_text, FONT_SMALL, fill=GRAY)
         return
 
-    entries.sort(key=_entry_sort_key)
-    row_h = 30
+    entries = sorted(entries, key=_entry_sort_key)
+    if max_entries is not None:
+        entries = entries[:max_entries]
+
+    max_width = w - 2 * PAD
+    line_h = 21
+    row_gap = 5
+
     for entry in entries:
+        lines = _wrap_text(draw, _entry_text(entry), max_width)
+        row_h = len(lines) * line_h + row_gap
         if cy + row_h > bottom:
             break
-        line = _format_entry(draw, entry, w - 2 * PAD)
-        _text(draw, (x + PAD, cy), line, FONT_SMALL)
-        cy += row_h
+        for line in lines:
+            _text(draw, (x + PAD, cy), line, FONT_SMALL)
+            cy += line_h
+        cy += row_gap
 
 
 def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
@@ -142,7 +165,7 @@ def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
 
 def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
                          school: dict | None, x: int, y: int, w: int, h: int):
-    """Merge future calendar events and the next school day chronologically."""
+    """Show the next six future occurrences, including repeated event titles."""
     stale = bool((calendar and calendar.get("_stale")) or
                  (school and school.get("_stale")))
     today_iso = date.today().isoformat()
@@ -151,12 +174,6 @@ def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
         ev for ev in (calendar or {}).get("events", [])
         if ev.get("date", "") > today_iso
     ]
-    calendar_events.sort(key=lambda ev: (
-        str(ev.get("date") or ""),
-        str(ev.get("time") or "00:00"),
-        str(ev.get("title") or "").casefold(),
-    ))
-    calendar_events = _dedupe_future_events(calendar_events)
     entries = [_calendar_entry(ev) for ev in calendar_events]
 
     next_date, school_rows = _next_school_group(school)
@@ -166,4 +183,5 @@ def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
     _draw_panel(
         draw, "TULEVAT", entries, x, y, w, h,
         empty_text="Ei tulevia tapahtumia", stale=stale,
+        max_entries=UPCOMING_LIMIT,
     )

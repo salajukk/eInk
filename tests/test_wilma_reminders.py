@@ -55,6 +55,20 @@ class WilmaReminderTests(unittest.TestCase):
         self.assertEqual(reminders[0]["title"], "Matematiikan koe")
         self.assertGreaterEqual(reminders[0]["confidence"], 0.9)
 
+    def test_child_from_wilma_inbox_is_preserved_on_reminder(self):
+        message = {
+            "id": "101:exam",
+            "student": "Neve",
+            "student_id": "101",
+            "subject": "Matematiikka",
+            "body": "Tiistaina pidämme kokeen.",
+        }
+        reminders = analyze_message(message, date(2026, 9, 14))
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0]["student"], "Neve")
+        self.assertEqual(reminders[0]["student_id"], "101")
+        self.assertEqual(reminders[0]["title"], "Matematiikan koe")
+
     def test_informational_message_is_ignored(self):
         reminders = analyze_message(self.messages["info-1"], date(2026, 9, 14))
         self.assertEqual(reminders, [])
@@ -90,6 +104,28 @@ class WilmaReminderTests(unittest.TestCase):
         self.assertEqual(result["standalone"], [reminder])
         self.assertEqual(result["enrichments"], [])
 
+    def test_same_generic_reminder_for_two_children_is_not_collapsed(self):
+        reminders = [
+            {
+                "title": "Koe",
+                "date": "2026-09-15",
+                "end_date": None,
+                "remember": [],
+                "student": "Neve",
+                "student_id": "101",
+            },
+            {
+                "title": "Koe",
+                "date": "2026-09-15",
+                "end_date": None,
+                "remember": [],
+                "student": "Sera",
+                "student_id": "202",
+            },
+        ]
+        result = school_reminders._dedupe_reminders(reminders)
+        self.assertEqual([(item["student"], item["title"]) for item in result], [("Neve", "Koe"), ("Sera", "Koe")])
+
     def test_html_helpers_parse_login_children_and_message_body(self):
         self.assertEqual(
             _extract_session_id('<form><input name="SESSIONID" value="abc123"></form>'),
@@ -121,6 +157,7 @@ class WilmaReminderTests(unittest.TestCase):
             "sender": "Teacher",
             "subject": "Retki",
             "body": "Ensi viikon keskiviikkona lähdemme retkelle. SALAINEN VIESTITESTI.",
+            "student": "Neve",
             "student_id": "child",
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,6 +170,7 @@ class WilmaReminderTests(unittest.TestCase):
             persisted = state_path.read_text(encoding="utf-8")
             self.assertNotIn("SALAINEN VIESTITESTI", persisted)
             self.assertEqual(data["items"][0]["title"], "Retki")
+            self.assertEqual(data["items"][0]["student"], "Neve")
 
     def test_future_reminder_survives_when_message_falls_out_of_fetch_window(self):
         stored = {
@@ -147,6 +185,8 @@ class WilmaReminderTests(unittest.TestCase):
                             "end_date": None,
                             "remember": [],
                             "source": "wilma_message",
+                            "student": "Neve",
+                            "student_id": "101",
                         }
                     ],
                 }
@@ -161,8 +201,8 @@ class WilmaReminderTests(unittest.TestCase):
                 data = school_reminders.build({}, reference_date=date(2026, 9, 14))
 
         self.assertEqual(
-            [(item["date"], item["title"]) for item in data["items"]],
-            [("2026-09-20", "Retki")],
+            [(item["date"], item["title"], item.get("student")) for item in data["items"]],
+            [("2026-09-20", "Retki", "Neve")],
         )
 
 

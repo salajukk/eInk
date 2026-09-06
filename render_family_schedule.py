@@ -1,8 +1,8 @@
-"""Chronological family schedule panels for the roomy 13.3inch layout.
+"""Family schedule panels for the roomy 13.3inch layout.
 
 Calendar events and school schedules come from separate data sources. This
-module merges them at render time and presents both as one clean chronological
-list without exposing the source calendar name.
+module merges them at render time. Today's panel remains chronological, while
+the upcoming panel groups future entries under weekday/date headings.
 """
 
 from datetime import date, datetime
@@ -17,13 +17,12 @@ from render import (
     _text,
 )
 from render_family import (
-    _next_school_group,
     _school_today_rows,
     _section_label,
 )
 
 
-UPCOMING_LIMIT = 6
+UPCOMING_DAY_LIMIT = 3
 
 
 def _entry_sort_key(entry: dict) -> tuple[str, str, str]:
@@ -72,6 +71,37 @@ def _school_entries(day: str, rows: list[dict]) -> list[dict]:
     return entries
 
 
+def _future_school_entries(school: dict | None) -> list[dict]:
+    """Return compact school-day entries for all available future summaries.
+
+    New school caches contain `upcoming_school_days`. Fall back to the older
+    `next_school_day` shape so an older cache does not make the panel empty.
+    """
+    entries = []
+    for child in (school or {}).get("children", [])[:2]:
+        days = child.get("upcoming_school_days")
+        if not isinstance(days, list):
+            nxt = child.get("next_school_day")
+            days = [nxt] if isinstance(nxt, dict) else []
+
+        for day in days:
+            if not isinstance(day, dict):
+                continue
+            day_iso = str(day.get("date") or "").strip()
+            start = str(day.get("start") or "").strip()
+            end = str(day.get("end") or "").strip()
+            if not day_iso or not start or not end:
+                continue
+            entries.append({
+                "date": day_iso,
+                "start": start,
+                "end": end,
+                "title": f"{child.get('name', 'Lapsi')} koulu",
+                "all_day": False,
+            })
+    return entries
+
+
 def _format_time_range(entry: dict) -> str:
     if entry.get("all_day"):
         return ""
@@ -85,9 +115,13 @@ def _format_time_range(entry: dict) -> str:
     return start
 
 
-def _entry_text(entry: dict) -> str:
+def _entry_text(entry: dict, include_day: bool = True) -> str:
     """Return the complete display text for one schedule occurrence."""
-    day = _date_str(str(entry.get("date") or ""), weekday=True).capitalize()
+    day = (
+        _date_str(str(entry.get("date") or ""), weekday=True).capitalize()
+        if include_day
+        else ""
+    )
     title = str(entry.get("title") or "").strip()
     time_range = _format_time_range(entry)
     return " ".join(part for part in (day, title, time_range) if part)
@@ -114,8 +148,7 @@ def _wrap_text(draw: ImageDraw.Draw, text: str, max_width: int) -> list[str]:
 
 def _draw_panel(draw: ImageDraw.Draw, label: str, entries: list[dict],
                 x: int, y: int, w: int, h: int,
-                empty_text: str, stale: bool = False,
-                max_entries: int | None = None):
+                empty_text: str, stale: bool = False):
     _section_label(draw, x, y, label, stale=stale)
     cy = y + PAD + 20
     bottom = y + h - 6
@@ -125,9 +158,6 @@ def _draw_panel(draw: ImageDraw.Draw, label: str, entries: list[dict],
         return
 
     entries = sorted(entries, key=_entry_sort_key)
-    if max_entries is not None:
-        entries = entries[:max_entries]
-
     max_width = w - 2 * PAD
     line_h = 21
     row_gap = 5
@@ -141,6 +171,58 @@ def _draw_panel(draw: ImageDraw.Draw, label: str, entries: list[dict],
             _text(draw, (x + PAD, cy), line, FONT_SMALL)
             cy += line_h
         cy += row_gap
+
+
+def _draw_grouped_upcoming_panel(draw: ImageDraw.Draw, entries: list[dict],
+                                 x: int, y: int, w: int, h: int,
+                                 stale: bool = False):
+    """Draw the next three dates that have content, grouped under day headings."""
+    _section_label(draw, x, y, "TULEVAT", stale=stale)
+    cy = y + PAD + 20
+    bottom = y + h - 6
+
+    entries = sorted(entries, key=_entry_sort_key)
+    if not entries:
+        _text(draw, (x + PAD, cy + 2), "Ei tulevia tapahtumia", FONT_SMALL, fill=GRAY)
+        return
+
+    groups: dict[str, list[dict]] = {}
+    for entry in entries:
+        day = str(entry.get("date") or "").strip()
+        if not day:
+            continue
+        groups.setdefault(day, []).append(entry)
+
+    dates = list(groups.keys())[:UPCOMING_DAY_LIMIT]
+    event_x = x + PAD + 14
+    max_event_width = w - (event_x - x) - PAD
+    line_h = 21
+    row_gap = 3
+    header_gap = 4
+    group_gap = 7
+
+    for day in dates:
+        header = _date_str(day, weekday=True).upper()
+        if cy + line_h > bottom:
+            break
+        _text(draw, (x + PAD, cy), header, FONT_SMALL)
+        cy += line_h + header_gap
+
+        for entry in groups[day]:
+            lines = _wrap_text(
+                draw,
+                _entry_text(entry, include_day=False),
+                max_event_width,
+            )
+            row_h = len(lines) * line_h + row_gap
+            if cy + row_h > bottom:
+                return
+            for line in lines:
+                _text(draw, (event_x, cy), line, FONT_SMALL)
+                cy += line_h
+            cy += row_gap
+
+        cy += group_gap
 
 
 def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
@@ -165,23 +247,24 @@ def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
 
 def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
                          school: dict | None, x: int, y: int, w: int, h: int):
-    """Show the next six future occurrences, including repeated event titles."""
+    """Group the next three future dates that contain calendar/school entries."""
     stale = bool((calendar and calendar.get("_stale")) or
                  (school and school.get("_stale")))
     today_iso = date.today().isoformat()
 
-    calendar_events = [
-        ev for ev in (calendar or {}).get("events", [])
+    calendar_entries = [
+        _calendar_entry(ev)
+        for ev in (calendar or {}).get("events", [])
         if ev.get("date", "") > today_iso
     ]
-    entries = [_calendar_entry(ev) for ev in calendar_events]
+    school_entries = [
+        entry for entry in _future_school_entries(school)
+        if entry.get("date", "") > today_iso
+    ]
 
-    next_date, school_rows = _next_school_group(school)
-    if next_date and school_rows:
-        entries.extend(_school_entries(next_date, school_rows))
-
-    _draw_panel(
-        draw, "TULEVAT", entries, x, y, w, h,
-        empty_text="Ei tulevia tapahtumia", stale=stale,
-        max_entries=UPCOMING_LIMIT,
+    _draw_grouped_upcoming_panel(
+        draw,
+        calendar_entries + school_entries,
+        x, y, w, h,
+        stale=stale,
     )

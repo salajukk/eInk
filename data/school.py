@@ -1,8 +1,8 @@
 """School schedule from one or more Wilma iCalendar feeds.
 
 The module reduces a full lesson timetable to the information most useful on a
-family dashboard: today's first/last lesson and, when today has no lessons, the
-next school day within the coming week.
+family dashboard: today's first/last lesson plus compact summaries for upcoming
+school days within the coming week.
 
 Expected config:
 
@@ -160,12 +160,16 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
 
             today_summary = _summarize_day(lessons, today)
 
-            next_school_day = None
+            upcoming_school_days = []
             for offset in range(1, 8):
                 candidate = _summarize_day(lessons, today + timedelta(days=offset))
                 if candidate["lesson_count"] > 0:
-                    next_school_day = candidate
-                    break
+                    upcoming_school_days.append(candidate)
+
+            # Keep the old single-value field for the 7.5inch renderer and
+            # existing caches/configurations. The 13.3inch renderer can use the
+            # full list to group several future days correctly.
+            next_school_day = upcoming_school_days[0] if upcoming_school_days else None
 
             children.append({
                 "name": name,
@@ -174,6 +178,7 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
                 "lesson_count": today_summary["lesson_count"],
                 "lessons": today_summary["lessons"],
                 "next_school_day": next_school_day,
+                "upcoming_school_days": upcoming_school_days,
             })
 
     except (requests.RequestException, DataFetchError) as e:

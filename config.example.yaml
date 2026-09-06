@@ -11,6 +11,7 @@ features:
   calendar: true
   tasks: true
   school: false
+  school_reminders: false
   hsl: false
   waste: false
   electricity: false
@@ -48,9 +49,12 @@ school_schedules:
     ical_url: "YOUR_SECOND_CHILD_WILMA_ICAL_URL"
 
 # ── Wilma messages / school reminders MVP ───────────────────────────────────
-# This is separate from the Wilma iCal schedule. The current phase can be tested
-# with wilma_reminders_check.py but is not rendered on the dashboard yet.
+# This is separate from the Wilma iCal schedule. When enabled, the 960x680
+# dashboard shows a compact KOULUSTA MUISTETTAVAA area. Matching calendar events
+# are enriched instead of duplicated. The 7.5inch renderer stays unchanged.
 # Keep real credentials ONLY in your local config.yaml and never commit/share it.
+# Enable with features.school_reminders: true. Existing local configs that already
+# have wilma_messages.provider but no feature key are enabled automatically.
 wilma_messages:
   provider: "live"
   base_url: "https://YOUR-WILMA.inschool.fi"

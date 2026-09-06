@@ -1,10 +1,21 @@
+import json
+import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from analysis.wilma_reminders import analyze_message
+from data import school_reminders
 from data.school_reminders import reconcile_with_calendar, remove_expired
-from integrations.wilma_messages import load_fixture_messages
+from integrations.wilma_messages import (
+    WilmaMessageSourceError,
+    _extract_children,
+    _extract_message_body,
+    _extract_session_id,
+    fetch_live_messages,
+    load_fixture_messages,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "wilma_messages.json"
 
@@ -66,6 +77,81 @@ class WilmaReminderTests(unittest.TestCase):
         result = reconcile_with_calendar([reminder], calendar)
         self.assertEqual(result["standalone"], [reminder])
         self.assertEqual(result["enrichments"], [])
+
+    def test_html_helpers_parse_login_children_and_message_body(self):
+        self.assertEqual(
+            _extract_session_id('<form><input name="SESSIONID" value="abc123"></form>'),
+            "abc123",
+        )
+        children = _extract_children(
+            '<a href="/!101/"><span>Neve</span></a><a href="/!202/">Sera</a>'
+        )
+        self.assertEqual(
+            children,
+            [{"id": "101", "name": "Neve"}, {"id": "202", "name": "Sera"}],
+        )
+        body = _extract_message_body(
+            '<div class="ckeditor"><p>Retki keskiviikkona.</p><p>Eväät mukaan.</p></div>'
+        )
+        self.assertIn("Retki keskiviikkona.", body)
+        self.assertIn("Eväät mukaan.", body)
+
+    def test_live_provider_requires_credentials_without_echoing_them(self):
+        with self.assertRaises(WilmaMessageSourceError) as ctx:
+            fetch_live_messages({"base_url": "https://school.inschool.fi"})
+        self.assertIn("username", str(ctx.exception))
+        self.assertIn("password", str(ctx.exception))
+
+    def test_state_does_not_persist_raw_message_body(self):
+        message = {
+            "id": "child:message-1",
+            "sent_at": "2026-09-13T12:00:00",
+            "sender": "Teacher",
+            "subject": "Retki",
+            "body": "Ensi viikon keskiviikkona lähdemme retkelle. SALAINEN VIESTITESTI.",
+            "student_id": "child",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            with patch.object(school_reminders, "STATE_FILE", state_path), patch.object(
+                school_reminders, "fetch_messages", return_value=[message]
+            ):
+                data = school_reminders.build({}, reference_date=date(2026, 9, 13))
+
+            persisted = state_path.read_text(encoding="utf-8")
+            self.assertNotIn("SALAINEN VIESTITESTI", persisted)
+            self.assertEqual(data["items"][0]["title"], "Retki")
+
+    def test_future_reminder_survives_when_message_falls_out_of_fetch_window(self):
+        stored = {
+            "messages": {
+                "child:old": {
+                    "hash": "abc",
+                    "last_seen": "2026-09-01T10:00:00",
+                    "reminders": [
+                        {
+                            "title": "Retki",
+                            "date": "2026-09-20",
+                            "end_date": None,
+                            "remember": [],
+                            "source": "wilma_message",
+                        }
+                    ],
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "state.json"
+            state_path.write_text(json.dumps(stored), encoding="utf-8")
+            with patch.object(school_reminders, "STATE_FILE", state_path), patch.object(
+                school_reminders, "fetch_messages", return_value=[]
+            ):
+                data = school_reminders.build({}, reference_date=date(2026, 9, 14))
+
+        self.assertEqual(
+            [(item["date"], item["title"]) for item in data["items"]],
+            [("2026-09-20", "Retki")],
+        )
 
 
 if __name__ == "__main__":

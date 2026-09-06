@@ -24,7 +24,17 @@ logging.basicConfig(
 )
 log = logging.getLogger("dashboard")
 
-MODULES = ("weather", "electricity", "waste", "calendar", "evaka", "hsl", "tasks", "school")
+MODULES = (
+    "weather",
+    "electricity",
+    "waste",
+    "calendar",
+    "evaka",
+    "hsl",
+    "tasks",
+    "school",
+    "school_reminders",
+)
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -88,10 +98,19 @@ def feature_enabled(config: dict, name: str) -> bool:
 
     When the new `features` section is absent, preserve the original repository's
     behaviour for backwards compatibility with existing config.yaml files.
+
+    `school_reminders` has an additional migration-friendly rule: if the feature
+    flag is not present but a wilma_messages provider is configured locally, the
+    module is enabled. Adding `features.school_reminders: false` always disables
+    it explicitly.
     """
     features = config.get("features")
     if features is not None:
-        return bool(features.get(name, False))
+        if name in features:
+            return bool(features.get(name, False))
+        if name == "school_reminders":
+            return bool((config.get("wilma_messages") or {}).get("provider"))
+        return False
 
     if name in ("weather", "electricity", "waste", "calendar"):
         return True
@@ -99,6 +118,8 @@ def feature_enabled(config: dict, name: str) -> bool:
         return bool(config.get("evaka", {}).get("username"))
     if name == "hsl":
         return bool(config.get("hsl", {}).get("api_key"))
+    if name == "school_reminders":
+        return bool((config.get("wilma_messages") or {}).get("provider"))
     return False
 
 
@@ -132,10 +153,46 @@ def _renderer(config: dict):
     return importlib.import_module(module_name)
 
 
+def _school_reminder_view(data: dict) -> dict | None:
+    """Reconcile active Wilma reminders with the already-fetched calendar.
+
+    The source module stays independent from calendars. Reconciliation happens
+    only at presentation time so a matching calendar event can be enriched while
+    unmatched reminders remain available for the compact school-reminder strip.
+    """
+    source = data.get("school_reminders")
+    if not source:
+        return None
+
+    from data.school_reminders import reconcile_with_calendar
+
+    reconciled = reconcile_with_calendar(source.get("items") or [], data.get("calendar"))
+    return {
+        **source,
+        "standalone": reconciled["standalone"],
+        "enrichments": reconciled["enrichments"],
+    }
+
+
 def _render_dashboard(config: dict, data: dict, width: int, height: int):
     renderer = _renderer(config)
     layout = config.get("display", {}).get("layout", "legacy")
-    if layout in ("family", "family_13in3"):
+
+    if layout == "family_13in3":
+        return renderer.render(
+            weather=data.get("weather"),
+            calendar=data.get("calendar"),
+            tasks=data.get("tasks"),
+            school=data.get("school"),
+            school_reminders=_school_reminder_view(data),
+            hsl=data.get("hsl"),
+            width=width,
+            height=height,
+            title=config.get("dashboard", {}).get("title", "PERHEEN NÄYTTÖ"),
+        )
+
+    # Keep the original 7.5inch family renderer API unchanged.
+    if layout == "family":
         return renderer.render(
             weather=data.get("weather"),
             calendar=data.get("calendar"),
@@ -146,6 +203,7 @@ def _render_dashboard(config: dict, data: dict, width: int, height: int):
             height=height,
             title=config.get("dashboard", {}).get("title", "PERHEEN NÄYTTÖ"),
         )
+
     return renderer.render(
         weather=data.get("weather"),
         electricity=data.get("electricity"),

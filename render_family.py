@@ -1,0 +1,382 @@
+"""Family-focused 800×480 renderer.
+
+This renderer lives beside the original `render.py` so the upstream layout can
+still be used with `display.layout: legacy`. It reuses the shared drawing
+primitives and fonts but gives most screen space to family calendar information.
+"""
+
+from datetime import date, datetime
+
+from PIL import Image, ImageDraw
+
+from render import (
+    BG,
+    FG,
+    GRAY,
+    PAD,
+    FONT_CLOCK72,
+    FONT_HERO,
+    FONT_LABEL,
+    FONT_MED,
+    FONT_REG18,
+    FONT_SMALL,
+    FONT_TINY,
+    FONT_TINY_R,
+    _DAYS_FI,
+    _date_str,
+    _divider,
+    _draw_weather_icon,
+    _text,
+    _vertical_divider,
+)
+
+WIDTH, HEIGHT = 800, 480
+BAND_H = 118
+CONTENT_Y = BAND_H
+CONTENT_H = 190
+TASKS_Y = CONTENT_Y + CONTENT_H
+TASKS_H = 52
+FORECAST_Y = TASKS_Y + TASKS_H
+FORECAST_H = HEIGHT - FORECAST_Y
+HALF_W = WIDTH // 2
+
+
+def _fit_text(draw: ImageDraw.Draw, text: str, font, max_width: int) -> str:
+    if draw.textlength(text, font=font) <= max_width:
+        return text
+    value = text
+    while value and draw.textlength(value + "…", font=font) > max_width:
+        value = value[:-1]
+    return value.rstrip() + "…"
+
+
+def _section_label(draw: ImageDraw.Draw, x: int, y: int, text: str, stale: bool = False):
+    _text(draw, (x + PAD, y + PAD), text, FONT_LABEL, fill=GRAY)
+    if stale:
+        _text(draw, (x + PAD + int(draw.textlength(text, font=FONT_LABEL)) + 6, y + PAD),
+              "*", FONT_LABEL, fill=GRAY)
+
+
+def _hsl_departure_row(stop: dict) -> str | None:
+    """Build one compact row for a configured stop/station."""
+    departures = (stop or {}).get("departures") or []
+    departures = [dep for dep in departures[:3] if dep.get("minutes_until") is not None]
+    if not departures:
+        return None
+
+    first = departures[0]
+    destination = str(first.get("headsign") or stop.get("name") or "").strip()
+    lines = [str(dep.get("line") or "?").strip() for dep in departures]
+    minutes = [str(int(dep.get("minutes_until", 0))) for dep in departures]
+
+    if len(set(lines)) == 1:
+        # Example: "41A Kamppi  6 · 27 · 47 min"
+        return f"{lines[0]} {destination}  {' · '.join(minutes)} min".strip()
+
+    # Train stations often have several different lines towards the same
+    # destination. Keep each line paired with its own minute counter.
+    # Example: "Helsinki  I 2 · E 12 · U 22 min"
+    pairs = " · ".join(f"{line} {minute}" for line, minute in zip(lines, minutes))
+    return f"{destination}  {pairs} min".strip()
+
+
+def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
+                   title: str, w: int, h: int = BAND_H):
+    draw.rectangle([0, 0, w, h - 1], fill=FG)
+    now = datetime.now()
+    mid = h // 2
+
+    time_str = now.strftime("%H:%M")
+    _text(draw, (16, mid), time_str, FONT_CLOCK72, fill=BG, anchor="lm")
+    dx = 16 + int(draw.textlength(time_str, font=FONT_CLOCK72)) + 18
+    _text(draw, (dx, mid - 14), _DAYS_FI[now.weekday()], FONT_REG18, fill=BG, anchor="ls")
+    _text(draw, (dx, mid + 26), f"{now.day}.{now.month}.", FONT_MED, fill=BG, anchor="ls")
+
+    stop_boards = (hsl or {}).get("stops") or []
+
+    wx = 338
+    if weather:
+        _draw_weather_icon(draw, wx, mid - 26, weather.get("icon", "unknown"),
+                           size=52, ink=BG, paper=FG)
+        temp = weather.get("temperature")
+        temp_str = f"{temp:.0f}°" if temp is not None else "-°"
+        _text(draw, (wx + 62, mid), temp_str, FONT_HERO, fill=BG, anchor="lm")
+        tx = wx + 62 + int(draw.textlength(temp_str, font=FONT_HERO)) + 10
+        condition = weather.get("condition_fi") or weather.get("condition") or ""
+        condition_width = 82 if stop_boards else 126
+        _text(draw, (tx, mid - 18), _fit_text(draw, condition, FONT_TINY, condition_width),
+              FONT_TINY, fill=BG)
+        hi, lo = weather.get("forecast_today_high"), weather.get("forecast_today_low")
+        if hi is not None and lo is not None:
+            _text(draw, (tx, mid + 3), f"{lo:.0f}° … {hi:.0f}°", FONT_TINY_R, fill=BG)
+
+    # Preferred family-dashboard mode: two compact departure-board rows.
+    if stop_boards:
+        rows = []
+        for stop in stop_boards[:2]:
+            row = _hsl_departure_row(stop)
+            if row:
+                rows.append(row)
+            else:
+                rows.append(f"{stop.get('name', 'Pysäkki')}  ei lähtöjä")
+
+        right = w - 16
+        max_width = 242
+        _text(draw, (right, 13), "LÄHDÖT", FONT_TINY_R, fill=BG, anchor="ra")
+        for idx, row in enumerate(rows[:2]):
+            y = 39 + idx * 31
+            _text(draw, (right, y), _fit_text(draw, row, FONT_TINY, max_width),
+                  FONT_TINY, fill=BG, anchor="ra")
+        return
+
+    # Backwards-compatible legacy route-planner presentation.
+    conns = (hsl or {}).get("connections") or []
+    first = conns[0] if conns else None
+    if first and first.get("minutes_until") is not None:
+        line = first.get("lines", "").split(" -> ")[0]
+        dest = first.get("to", "")
+        _text(draw, (w - 16, 14), f"{line} -> {dest} · {first.get('first_depart', '')}",
+              FONT_TINY_R, fill=BG, anchor="ra")
+        _text(draw, (w - 16, mid + 12), f"{first['minutes_until']} min",
+              FONT_HERO, fill=BG, anchor="rm")
+    else:
+        _text(draw, (w - 16, mid - 5), title.upper(), FONT_MED, fill=BG, anchor="rm")
+        _text(draw, (w - 16, mid + 22), "tänään yhdellä silmäyksellä",
+              FONT_TINY_R, fill=BG, anchor="rm")
+
+
+def _event_meta(ev: dict, today: bool) -> str:
+    cal = ev.get("calendar", "")
+    time_str = ev.get("time")
+    if today:
+        when = time_str[:5] if time_str else "koko päivä"
+    else:
+        when = _date_str(ev.get("date", ""), weekday=True)
+        if time_str:
+            when += f"  {time_str[:5]}"
+    return f"{when}  ·  {cal}" if cal else when
+
+
+def _dedupe_future_events(events: list[dict]) -> list[dict]:
+    """Keep only the nearest future occurrence of repeated calendar events.
+
+    Google Calendar recurring events are expanded into individual occurrences.
+    On a small family dashboard, showing next week's identical recurrence uses
+    space that is better reserved for other upcoming events. Events with the
+    same title and calendar are therefore shown only once in the upcoming list.
+    """
+    result = []
+    seen = set()
+    for ev in events:
+        key = (str(ev.get("title", "")).strip().casefold(),
+               str(ev.get("calendar", "")).strip().casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(ev)
+    return result
+
+
+def _draw_events(draw: ImageDraw.Draw, data: dict | None, x: int, y: int,
+                 w: int, h: int, today: bool):
+    label = "TÄNÄÄN" if today else "TULEVAT"
+    stale = bool(data and data.get("_stale"))
+    _section_label(draw, x, y, label, stale=stale)
+    cy = y + PAD + 20
+
+    events = (data or {}).get("events", [])
+    today_iso = date.today().isoformat()
+    if today:
+        events = [ev for ev in events if ev.get("date") == today_iso]
+        empty = "Ei menoja tänään"
+    else:
+        events = [ev for ev in events if ev.get("date", "") > today_iso]
+        events = _dedupe_future_events(events)
+        empty = "Ei tulevia tapahtumia"
+
+    if not events:
+        _text(draw, (x + PAD, cy + 4), empty, FONT_SMALL, fill=GRAY)
+        return
+
+    block_h = 39
+    for ev in events:
+        if cy + block_h > y + h - 6:
+            break
+        meta = _event_meta(ev, today)
+        title = str(ev.get("title", ""))
+        title = _fit_text(draw, title, FONT_MED, w - 2 * PAD)
+        _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
+        _text(draw, (x + PAD, cy + 17), title, FONT_MED)
+        cy += block_h
+
+
+def _school_today_rows(school: dict | None) -> list[dict]:
+    rows = []
+    for child in (school or {}).get("children", [])[:2]:
+        if child.get("start") and child.get("end"):
+            rows.append(child)
+    return rows
+
+
+def _next_school_group(school: dict | None) -> tuple[str | None, list[dict]]:
+    """Return the nearest next school date and children who attend that date."""
+    candidates = []
+    for child in (school or {}).get("children", [])[:2]:
+        nxt = child.get("next_school_day") or {}
+        if nxt.get("date") and nxt.get("start") and nxt.get("end"):
+            candidates.append((nxt["date"], child, nxt))
+    if not candidates:
+        return None, []
+    next_date = min(item[0] for item in candidates)
+    rows = [
+        {"name": child.get("name", "Lapsi"), "start": nxt["start"], "end": nxt["end"]}
+        for item_date, child, nxt in candidates if item_date == next_date
+    ]
+    return next_date, rows
+
+
+def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
+                      school: dict | None, x: int, y: int, w: int, h: int):
+    stale = bool((calendar and calendar.get("_stale")) or (school and school.get("_stale")))
+    _section_label(draw, x, y, "TÄNÄÄN", stale=stale)
+    cy = y + PAD + 20
+
+    school_rows = _school_today_rows(school)
+    if school_rows:
+        _text(draw, (x + PAD, cy), "KOULU", FONT_LABEL, fill=GRAY)
+        cy += 17
+        for child in school_rows:
+            _text(draw, (x + PAD, cy), str(child.get("name", "Lapsi")), FONT_SMALL)
+            _text(draw, (x + 105, cy), f"{child['start']}–{child['end']}", FONT_SMALL, fill=GRAY)
+            cy += 24
+        cy += 4
+
+    events = (calendar or {}).get("events", [])
+    today_iso = date.today().isoformat()
+    events = [ev for ev in events if ev.get("date") == today_iso]
+
+    if not school_rows and not events:
+        _text(draw, (x + PAD, cy + 2), "Ei menoja tänään", FONT_SMALL, fill=GRAY)
+        return
+    if school_rows and not events:
+        _text(draw, (x + PAD, cy + 2), "Ei muita menoja tänään", FONT_TINY, fill=GRAY)
+        return
+
+    for ev in events:
+        if cy + 36 > y + h - 6:
+            break
+        meta = _event_meta(ev, today=True)
+        title = _fit_text(draw, str(ev.get("title", "")), FONT_MED, w - 2 * PAD)
+        _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
+        _text(draw, (x + PAD, cy + 17), title, FONT_MED)
+        cy += 39
+
+
+def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
+                         school: dict | None, x: int, y: int, w: int, h: int):
+    stale = bool((calendar and calendar.get("_stale")) or (school and school.get("_stale")))
+    _section_label(draw, x, y, "TULEVAT", stale=stale)
+    cy = y + PAD + 20
+
+    today_iso = date.today().isoformat()
+    events = [ev for ev in (calendar or {}).get("events", []) if ev.get("date", "") > today_iso]
+    events = _dedupe_future_events(events)
+
+    next_date, school_rows = _next_school_group(school)
+    if next_date and school_rows:
+        _text(draw, (x + PAD, cy), f"KOULU · {_date_str(next_date, weekday=True)}", FONT_LABEL, fill=GRAY)
+        cy += 18
+        for child in school_rows:
+            if cy + 22 > y + h - 6:
+                break
+            _text(draw, (x + PAD, cy), str(child["name"]), FONT_SMALL)
+            _text(draw, (x + 105, cy), f"{child['start']}–{child['end']}", FONT_SMALL, fill=GRAY)
+            cy += 24
+        cy += 3
+
+    if not events:
+        if not school_rows:
+            _text(draw, (x + PAD, cy + 2), "Ei tulevia tapahtumia", FONT_SMALL, fill=GRAY)
+        return
+
+    for ev in events:
+        if cy + 36 > y + h - 6:
+            break
+        meta = _event_meta(ev, today=False)
+        title = _fit_text(draw, str(ev.get("title", "")), FONT_MED, w - 2 * PAD)
+        _text(draw, (x + PAD, cy), meta, FONT_TINY_R, fill=GRAY)
+        _text(draw, (x + PAD, cy + 17), title, FONT_MED)
+        cy += 39
+
+
+def _draw_tasks(draw: ImageDraw.Draw, data: dict | None, x: int, y: int, w: int, h: int):
+    _section_label(draw, x, y, "MUISTETTAVAA")
+    items = (data or {}).get("items", [])[:3]
+    if not items:
+        _text(draw, (x + 126, y + PAD), "Ei muistettavaa", FONT_LABEL, fill=GRAY)
+        return
+
+    cy = y + 29
+    slot_w = w // len(items)
+    for i, item in enumerate(items):
+        sx = x + i * slot_w + PAD
+        box_y = cy + 2
+        draw.rectangle([sx, box_y, sx + 10, box_y + 10], outline=FG, width=1)
+        title = item.get("title", "") if isinstance(item, dict) else str(item)
+        title = _fit_text(draw, title, FONT_TINY, slot_w - PAD - 20)
+        _text(draw, (sx + 17, cy), title, FONT_TINY)
+
+
+def _draw_forecast(draw: ImageDraw.Draw, data: dict | None, x: int, y: int, w: int, h: int):
+    _section_label(draw, x, y, "ENNUSTE", stale=bool(data and data.get("_stale")))
+    days = (data or {}).get("forecast", [])[:7]
+    if not days:
+        _text(draw, (x + PAD, y + 34), "Ei saatavilla", FONT_SMALL, fill=GRAY)
+        return
+
+    col_w = w // len(days)
+    icon_size = 34
+    top = y + 27
+    for i, day in enumerate(days):
+        cx = x + i * col_w + col_w // 2
+        heading = f"{day.get('day', '')} {day.get('date', '')}".strip()
+        _text(draw, (cx, top), heading, FONT_TINY, fill=GRAY, anchor="ma")
+        _draw_weather_icon(draw, cx - icon_size // 2, top + 18,
+                           day.get("icon", "unknown"), size=icon_size)
+        hi, lo = day.get("high"), day.get("low")
+        if hi is not None and lo is not None:
+            _text(draw, (cx - 2, top + 58), f"{hi:.0f}°", FONT_SMALL, anchor="ra")
+            _text(draw, (cx + 3, top + 61), f"{lo:.0f}°", FONT_TINY_R, fill=GRAY, anchor="la")
+
+
+def render(weather: dict | None = None, calendar: dict | None = None,
+           tasks: dict | None = None, school: dict | None = None,
+           hsl: dict | None = None, width: int = WIDTH, height: int = HEIGHT,
+           title: str = "PERHEEN NÄYTTÖ") -> Image.Image:
+    """Render the family dashboard for the Waveshare 7.5" V2 (800×480)."""
+    if width != WIDTH or height != HEIGHT:
+        raise ValueError("Family layout currently supports only 800×480 displays")
+
+    img = Image.new("L", (width, height), BG)
+    draw = ImageDraw.Draw(img)
+
+    _draw_now_band(draw, weather, hsl, title, width)
+    _vertical_divider(draw, HALF_W, CONTENT_Y + 8, TASKS_Y - 8)
+    _draw_today_panel(draw, calendar, school, 0, CONTENT_Y, HALF_W, CONTENT_H)
+    _draw_upcoming_panel(draw, calendar, school, HALF_W + 1, CONTENT_Y,
+                         width - HALF_W - 1, CONTENT_H)
+
+    _divider(draw, 0, TASKS_Y, width)
+    _draw_tasks(draw, tasks, 0, TASKS_Y, width, TASKS_H)
+
+    _divider(draw, 0, FORECAST_Y, width)
+    _draw_forecast(draw, weather, 0, FORECAST_Y, width, FORECAST_H)
+    return img
+
+
+CLOCK_REGION = (0, 0, 240, BAND_H)
+HSL_REGION = (540, 0, 800, BAND_H)
+PARTIAL_CELLS = {
+    "clock": {"region": CLOCK_REGION, "data_key": None, "filter": None},
+    "hsl": {"region": HSL_REGION, "data_key": "hsl", "filter": "data.hsl:drop_past_departures"},
+}

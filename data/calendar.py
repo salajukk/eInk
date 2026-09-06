@@ -13,6 +13,7 @@ from pathlib import Path
 import requests
 
 CACHE_FILE = Path("cache/calendar.json")
+MAX_CACHED_EVENTS = 20
 
 
 class DataFetchError(Exception):
@@ -168,8 +169,11 @@ def fetch(config: dict, use_cache: bool = True) -> dict:
     for ev in all_events:
         ev.pop("_sort", None)
 
+    # Keep a little more source data than the screen displays. The 13.3-inch
+    # upcoming panel shows six merged calendar/school occurrences; retaining
+    # 20 calendar rows prevents a busy current day from starving that list.
     data = {
-        "events":     all_events[:8],
+        "events":     all_events[:MAX_CACHED_EVENTS],
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
     }
     _save_cache(data)

@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+ANALYZER_VERSION = "rules-v1"
+
 WEEKDAYS = {
     "maanantaina": 0,
     "tiistaina": 1,

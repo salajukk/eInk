@@ -36,6 +36,12 @@ exam sentence. For example, a subject of `Matematiikka` plus `Tiistaina pidämme
 kokeen` can become `Matematiikan koe`. If no supported subject can be identified,
 the conservative fallback remains simply `Koe`.
 
+The live adapter also knows which child inbox each message came from. That child
+name/id is carried through as structured source context instead of being guessed
+from the free-form message text. This allows the dashboard to show, for example,
+`Ke 9.9. Neve · Matematiikan koe` and prevents identical generic reminders for
+two different children from being collapsed into one.
+
 ## Phase 2: live Wilma adapter and private local state
 
 `integrations/wilma_messages.py` has a small live adapter for the community-
@@ -115,7 +121,9 @@ Example:
   "action_required": true,
   "confidence": 0.92,
   "source": "wilma_message",
-  "source_message_id": "123:456"
+  "source_message_id": "123:456",
+  "student": "Neve",
+  "student_id": "123"
 }
 ```
 
@@ -136,15 +144,15 @@ The result is split into:
 
 Standalone reminders are shown in a compact `KOULUSTA MUISTETTAVAA` area in the
 existing reminders band. At most two nearest reminders are shown so the display
-does not become a text wall.
+does not become a text wall. The child name is included when Wilma supplied it.
 
 A matched calendar item is **not** repeated in the school-reminder area. Instead,
-its `remember` values are appended to the existing TÄNÄÄN/TULEVAT event line. For
-example:
+its `remember` values are appended to the existing TÄNÄÄN/TULEVAT event line. If
+the child is known, those details are prefixed with the child name, for example:
 
 ```text
 KE 16.9.
-  Luokan retki 08:15 - 13:00 · Eväät mukaan · Säänmukainen vaatetus
+  Luokan retki 08:15 - 13:00 · Neve: Eväät mukaan · Neve: Säänmukainen vaatetus
 ```
 
 If the Wilma reminder only confirms an event already represented in the calendar

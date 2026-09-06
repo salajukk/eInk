@@ -17,15 +17,40 @@ from urllib.parse import urlparse
 # main.py configures a file logger at import time, so ensure the directory exists.
 Path("cache").mkdir(exist_ok=True)
 
+from data.hsl import drop_past_departures  # noqa: E402
 from main import MODULES, _render_dashboard, feature_enabled, fetch_module, load_config  # noqa: E402
 
 log = logging.getLogger("dashboard.web")
 OUTPUT_PATH = Path("output/dashboard.png")
 
 
+def _web_mvp_config(config: dict) -> dict:
+    """Use shorter cache windows for the always-visible tablet MVP.
+
+    Existing config values are respected when they are already shorter. The
+    generic cache controls calendar/weather-like data; HSL gets a much shorter
+    window because departures become obsolete quickly. This tuning is local to
+    web_dashboard.py and does not change the later e-paper deployment policy.
+    """
+    tuned = dict(config)
+    cache_cfg = dict(config.get("cache") or {})
+
+    def _cap_minutes(key: str, maximum: int):
+        try:
+            current = int(cache_cfg.get(key, maximum))
+        except (TypeError, ValueError):
+            current = maximum
+        cache_cfg[key] = min(current, maximum)
+
+    _cap_minutes("ttl_minutes", 5)
+    _cap_minutes("hsl_ttl_minutes", 1)
+    tuned["cache"] = cache_cfg
+    return tuned
+
+
 def render_once(config_path: str, use_cache: bool = True) -> Path:
     """Fetch enabled data, render the dashboard, and atomically replace the PNG."""
-    config = load_config(config_path)
+    config = _web_mvp_config(load_config(config_path))
     display_cfg = config.get("display", {})
     width = int(display_cfg.get("width", 960))
     height = int(display_cfg.get("height", 680))
@@ -35,6 +60,12 @@ def render_once(config_path: str, use_cache: bool = True) -> Path:
         name: fetch_module(name, config, use_cache) if feature_enabled(config, name) else None
         for name in MODULES
     }
+
+    # A cached HSL response can still contain a departure that has passed since
+    # the API fetch. Age/filter those rows on every render so the tablet never
+    # shows an already-departed bus/train just because the cache is still valid.
+    if data.get("hsl"):
+        data["hsl"] = drop_past_departures(data["hsl"])
 
     log.info("Web MVP: rendering %sx%s image...", width, height)
     image = _render_dashboard(config, data, width, height)
@@ -194,8 +225,8 @@ def parse_args():
     parser.add_argument(
         "--refresh-seconds",
         type=int,
-        default=60,
-        help="How often to re-render the dashboard (default: 60)",
+        default=30,
+        help="How often to re-render the dashboard (default: 30)",
     )
     parser.add_argument(
         "--config",
@@ -218,7 +249,9 @@ def main():
     state = DashboardState()
 
     try:
-        render_once(args.config, use_cache=not args.no_cache)
+        # Always start the tablet session with fresh data so recent calendar
+        # edits are visible immediately after restarting the server.
+        render_once(args.config, use_cache=False)
         state.last_success = time.time()
     except Exception as exc:
         state.last_error = str(exc)

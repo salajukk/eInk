@@ -38,7 +38,11 @@ Goals of the MVP:
 
 The MVP should avoid tablet-specific features that would make later e-paper migration difficult. Prefer a simple full-screen/kiosk-style presentation of the rendered dashboard and automatic refreshes.
 
-The first browser output is implemented in `web_dashboard.py`. It reuses the existing data modules and `render_family_13in3.py`, writes the same 960x680 dashboard to `output/dashboard.png`, and serves it to the Android browser over the trusted home LAN. It intentionally does not reimplement the dashboard as an HTML UI. Default render interval is 60 seconds and default HTTP port is 8080. See `FAMILY_DASHBOARD.md` for startup/testing instructions.
+The browser output is implemented in `web_dashboard.py`. It reuses the existing data modules and `render_family_13in3.py`, writes the same 960x680 dashboard to `output/dashboard.png`, and serves it to the Android browser over the trusted home LAN. It intentionally does not reimplement the dashboard as an HTML UI. Default render interval is 30 seconds and default HTTP port is 8080. See `FAMILY_DASHBOARD.md` for startup/testing instructions.
+
+The preferred MVP server launcher is now `dashboard_supervisor.py`. It runs `web_dashboard.py`, checks `origin/family-dashboard-v1` every 60 seconds, performs only safe fast-forward pulls when a newer commit is available, and restarts the web dashboard so repository changes take effect automatically. Tracked local edits block an automatic update rather than being overwritten. `config.yaml` and credentials remain local/gitignored. This allows future dashboard changes committed through GitHub (including changes requested from a phone) to propagate to the home server without manually running `git pull`. See `AUTO_UPDATE.md` for details.
+
+The current Windows PC acts as the temporary MVP server. The next hardware step is to replace the Windows PC server role with a Raspberry Pi while continuing to serve the Android tablet. On the Pi, the same supervisor can be run first manually and later configured as a `systemd` service at boot.
 
 Decision gate: only purchase/build the dedicated roughly 250 € Raspberry Pi + 13.3inch e-paper setup if the kitchen-tablet test demonstrates that the always-visible dashboard is genuinely useful to the family.
 
@@ -79,7 +83,7 @@ The design goal is a thin, light object that looks like a normal framed picture 
 
 ## Current software state
 
-The 13.3inch simulator layout is working at 960x680. The Android MVP now has a browser-friendly output path in `web_dashboard.py`, which keeps the same renderer and serves the generated PNG to a tablet without invoking e-paper hardware.
+The 13.3inch simulator layout is working at 960x680. The Android MVP has a browser-friendly output path in `web_dashboard.py`, which keeps the same renderer and serves the generated PNG to a tablet without invoking e-paper hardware.
 
 Current data sources/features include:
 
@@ -89,7 +93,9 @@ Current data sources/features include:
 - HSL bus and train departures through Digitransit
 - simple reminders/tasks
 
-Today's events remain visible for the whole day, even after their end time. Calendar and school entries are merged chronologically and displayed without calendar-source labels.
+Today's events remain visible for the whole day, even after their end time. Calendar and school entries are merged chronologically and displayed without calendar-source labels. The TULEVAT panel shows the next six chronological occurrences without suppressing repeated titles, and long event text wraps instead of being truncated.
+
+The Android MVP refreshes the rendered dashboard every 30 seconds. HSL cached departures are aged on every render, with the HSL cache capped at one minute for the web MVP, while the generic calendar/weather-style cache is capped at five minutes. The server session starts with a forced fresh data fetch.
 
 Google Tasks integration is a later backlog item. The intended future behaviour is to merge both users' open personal Google Tasks into one nameless `MUISTETTAVAA` list without owner prefixes.
 

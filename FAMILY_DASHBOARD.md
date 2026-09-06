@@ -1,10 +1,16 @@
 # Family Dashboard
 
-This branch keeps the original layouts available and adds a family-focused 13.3inch wall-dashboard layout.
+This branch keeps the original layouts available and adds a family-focused 13.3inch dashboard layout.
+
+The long-term target is still a Waveshare 13.3inch black/white e-paper wall display, but the current MVP runs the **same 960x680 dashboard** on an existing Android tablet first. The tablet phase is used to validate whether an always-visible family dashboard is useful enough to justify the dedicated e-paper + Raspberry Pi hardware.
+
+The Android MVP must remain e-paper-compatible: one glanceable screen, black/white presentation, no required scrolling, animations or touch interaction, and the same 960x680 renderer that will later be used for the 13.3inch panel.
 
 ## Supported display configurations
 
-### Recommended: Waveshare 13.3inch e-Paper HAT (K)
+### Current MVP / future 13.3inch target
+
+Use the 13.3inch layout during the Android test as well:
 
 ```yaml
 display:
@@ -15,7 +21,7 @@ display:
   layout: "family_13in3"
 ```
 
-Target hardware is the black/white Waveshare 13.3inch e-Paper HAT (K), 960x680.
+On a normal development computer this configuration still uses the simulator/output PNG. On the future Raspberry Pi it selects the physical Waveshare 13.3inch e-Paper HAT (K) adapter.
 
 ### Original 7.5inch Waveshare V2
 
@@ -52,7 +58,64 @@ The simulator writes the rendered image to:
 output/dashboard.png
 ```
 
-## 2. Data-module tests
+## 2. Android tablet MVP
+
+`web_dashboard.py` is the browser-friendly output path for the MVP. It reuses the existing data modules and `family_13in3` renderer, writes the result to `output/dashboard.png`, and serves that PNG as a simple full-screen web page. It does **not** duplicate the dashboard UI in HTML and does not talk to e-paper hardware.
+
+Start it on a computer that is on the same trusted home network as the Android tablet.
+
+Windows PowerShell:
+
+```powershell
+.\venv\Scripts\python.exe web_dashboard.py
+```
+
+macOS/Linux:
+
+```bash
+venv/bin/python web_dashboard.py
+```
+
+Defaults:
+
+```text
+HTTP port:       8080
+Dashboard render: every 60 seconds
+Listen address:  0.0.0.0 (home LAN)
+```
+
+First verify on the computer itself:
+
+```text
+http://localhost:8080
+```
+
+Then open the same page on the Android tablet using the computer's LAN IP, for example:
+
+```text
+http://192.168.1.10:8080
+```
+
+The exact LAN IP depends on the computer/network. On Windows, `ipconfig` can be used to find the IPv4 address. If Windows Firewall asks for permission, allow the server on the **private/home network only**.
+
+The browser page fits the 960x680 dashboard inside the available tablet screen without scrolling and automatically reloads the rendered PNG. Keep the tablet screen awake and use browser full-screen/kiosk presentation as practical during the kitchen test.
+
+Optional arguments:
+
+```bash
+python web_dashboard.py --port 8080 --refresh-seconds 60 --config config.yaml
+```
+
+For a one-off diagnostic, the server also exposes:
+
+```text
+/health
+/dashboard.png
+```
+
+Keep this server on the trusted home LAN. Do not expose or port-forward it to the public internet because the rendered dashboard can contain private family calendar information.
+
+## 3. Data-module tests
 
 ```bash
 python main.py --only weather --no-cache
@@ -62,7 +125,9 @@ python main.py --only school --no-cache
 python main.py --only tasks
 ```
 
-## 3. Raspberry Pi setup for the 13.3inch display
+## 4. Raspberry Pi setup for the future 13.3inch display
+
+This phase is intentionally after the Android MVP decision gate.
 
 Enable SPI first with Raspberry Pi configuration tools.
 
@@ -91,7 +156,7 @@ Then test the real dashboard:
 venv/bin/python main.py --no-cache --full-refresh
 ```
 
-## 4. Partial refresh on the 13.3inch panel
+## 5. Partial refresh on the 13.3inch panel
 
 Partial refresh is intentionally disabled for `waveshare_13in3k` for the first hardware version.
 
@@ -107,7 +172,7 @@ partial_updates:
 
 The complete dashboard can still refresh normally every 10 minutes. True partial refresh can be enabled later after testing it on the physical 13.3inch panel.
 
-## 5. Raspberry Pi setup for the old 7.5inch display
+## 6. Raspberry Pi setup for the old 7.5inch display
 
 For the original 7.5inch V2 hardware use:
 
@@ -117,7 +182,9 @@ venv/bin/pip install -r requirements-pi-7in5.txt
 
 That file installs `betterepd7in5` in addition to the common dependencies. The 7.5inch adapter continues to support partial refresh.
 
-## 6. Deployment
+## 7. Dedicated e-paper deployment
+
+This deployment path remains available for the later hardware phase.
 
 Copy the deployment template and set the Raspberry Pi SSH target:
 
@@ -139,7 +206,7 @@ Sync the application with:
 ./sync.sh
 ```
 
-When the display has been tested successfully, install the managed cron block with:
+When the physical display has been tested successfully, install the managed cron block with:
 
 ```bash
 ./sync_cron.sh
@@ -149,25 +216,38 @@ For the 13.3inch model the minute-level `--partial-only` cron invocations are cu
 
 ## Architecture
 
-The data flow stays intentionally simple:
+The data/rendering flow stays intentionally shared between outputs:
 
 ```text
-data/<feature>.py -> main.py -> renderer -> display adapter
+data/<feature>.py -> renderer -> PNG / display output
+```
+
+Android MVP:
+
+```text
+data modules -> render_family_13in3.py -> output/dashboard.png -> web_dashboard.py -> Android browser
+```
+
+Future 13.3inch e-paper:
+
+```text
+data modules -> render_family_13in3.py -> display/epaper_13in3.py -> Waveshare panel
 ```
 
 Family renderers:
 
 ```text
 render_family.py          800x480 / 7.5inch
-render_family_13in3.py    960x680 / 13.3inch K
+render_family_13in3.py    960x680 / Android MVP + 13.3inch K
 ```
 
-Hardware adapters:
+Hardware/output adapters:
 
 ```text
+web_dashboard.py          Android/browser MVP output
 display/epaper.py         Waveshare 7.5inch V2
 display/epaper_13in3.py   Waveshare 13.3inch HAT (K)
 display/simulator.py      development preview
 ```
 
-`main.py` chooses the hardware adapter from `display.model` only when it is actually running on a Raspberry Pi. On a normal development computer it always uses the simulator.
+`main.py` chooses the hardware adapter from `display.model` only when it is actually running on a Raspberry Pi. On a normal development computer it always uses the simulator. `web_dashboard.py` bypasses display hardware entirely and serves the same rendered 960x680 image to the tablet browser.

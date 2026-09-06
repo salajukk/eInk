@@ -47,15 +47,20 @@ def _end_hhmm(value: str | None) -> str | None:
 
 
 def _calendar_remember_items(ev: dict, school_reminders: dict | None) -> list[str]:
-    """Return remember-items attached to this exact reconciled calendar event."""
+    """Return child-aware remember-items attached to this reconciled event."""
     result: list[str] = []
     for enrichment in (school_reminders or {}).get("enrichments") or []:
         if not isinstance(enrichment, dict) or enrichment.get("event") != ev:
             continue
         reminder = enrichment.get("reminder") or {}
+        student = str(reminder.get("student") or "").strip()
         for item in reminder.get("remember") or []:
             text = str(item).strip()
-            if text and text not in result:
+            if not text:
+                continue
+            if student:
+                text = f"{student}: {text}"
+            if text not in result:
                 result.append(text)
     return result
 

@@ -80,9 +80,13 @@ Defaults:
 
 ```text
 HTTP port:       8080
-Dashboard render: every 60 seconds
+Dashboard render: every 30 seconds
 Listen address:  0.0.0.0 (home LAN)
 ```
+
+The web MVP starts each server session with one forced fresh data fetch. After that it uses the normal module caches, but caps the generic calendar/weather-style cache at 5 minutes and the HSL cache at 1 minute. These shorter cache windows apply only to `web_dashboard.py`; they do not change the later e-paper deployment policy.
+
+Cached HSL departure boards are also aged on every 30-second render, so buses/trains whose departure time has already passed are removed even before the next Digitransit API refresh.
 
 First verify on the computer itself:
 
@@ -103,7 +107,7 @@ The browser page fits the 960x680 dashboard inside the available tablet screen w
 Optional arguments:
 
 ```bash
-python web_dashboard.py --port 8080 --refresh-seconds 60 --config config.yaml
+python web_dashboard.py --port 8080 --refresh-seconds 30 --config config.yaml
 ```
 
 For a one-off diagnostic, the server also exposes:
@@ -124,6 +128,8 @@ python main.py --only hsl --no-cache
 python main.py --only school --no-cache
 python main.py --only tasks
 ```
+
+Use `--no-cache` when checking a calendar edit or troubleshooting a departure feed so the diagnostic shows the source data rather than an older cache entry.
 
 ## 4. Raspberry Pi setup for the future 13.3inch display
 

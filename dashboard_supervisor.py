@@ -129,7 +129,15 @@ def _reload_supervisor_if_needed(changed_files: list[str]) -> None:
     if Path(__file__).name not in changed_files:
         return
     log.info("Supervisor itself changed; reloading the updated supervisor")
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+    try:
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+    except OSError:
+        # If process replacement is unavailable for some reason, continue with
+        # the already-running supervisor and at least restart the dashboard.
+        log.exception(
+            "Could not reload the supervisor process automatically; "
+            "the new supervisor code will take effect after the next manual restart"
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -183,16 +191,17 @@ def main() -> None:
         args.refresh_seconds,
     )
 
-    server = _start_server(args)
+    server: subprocess.Popen | None = _start_server(args)
     next_git_check = 0.0  # check immediately after startup
 
     try:
         while True:
             # Keep the dashboard alive even if it exits for an unrelated reason.
-            if server.poll() is not None:
+            if server is None or server.poll() is not None:
+                exit_code = server.returncode if server is not None else None
                 log.warning(
-                    "Dashboard server exited with code %s; restarting in 5 seconds",
-                    server.returncode,
+                    "Dashboard server is not running (last code %s); restarting in 5 seconds",
+                    exit_code,
                 )
                 time.sleep(5)
                 server = _start_server(args)

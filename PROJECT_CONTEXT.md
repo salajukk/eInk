@@ -93,9 +93,11 @@ Current data sources/features include:
 - HSL bus and train departures through Digitransit
 - simple reminders/tasks
 
-Today's events remain visible for the whole day, even after their end time. Calendar and school entries are merged chronologically and displayed without calendar-source labels. The TULEVAT panel shows the next six chronological occurrences without suppressing repeated titles, and long event text wraps instead of being truncated.
+Today's events remain visible for the whole day, even after their end time. Calendar and school entries are merged chronologically and displayed without calendar-source labels. The TULEVAT panel groups the next three future dates that have content under weekday/date headings; repeated event titles are allowed and long event text wraps instead of being truncated.
 
 The Android MVP refreshes the rendered dashboard every 30 seconds. HSL cached departures are aged on every render, with the HSL cache capped at one minute for the web MVP, while the generic calendar/weather-style cache is capped at five minutes. The server session starts with a forced fresh data fetch.
+
+A Wilma-message reminder MVP is under development. It is deliberately separate from the existing Wilma iCal school-schedule module. `integrations/wilma_messages.py` contains fixture and live message-source adapters, `analysis/wilma_reminders.py` contains conservative replaceable Finnish text analysis, and `data/school_reminders.py` contains expiry, local hash/reminder state and conservative calendar reconciliation helpers. Raw Wilma message bodies are analyzed in memory and are not persisted. The live adapter can currently be tested with `wilma_reminders_check.py`; the reminders are **not yet wired to the dashboard renderer**. See `WILMA_REMINDERS.md`.
 
 Google Tasks integration is a later backlog item. The intended future behaviour is to merge both users' open personal Google Tasks into one nameless `MUISTETTAVAA` list without owner prefixes.
 
@@ -107,6 +109,7 @@ Never commit or paste real credentials into GitHub or chat. Keep the following o
 
 - private Google Calendar iCal URLs
 - private Wilma iCal URLs
+- Wilma message login base URL, username and password
 - Digitransit API key
 - future Google OAuth client/token files
 

@@ -47,6 +47,21 @@ school_schedules:
   - name: "Lapsi 2"
     ical_url: "YOUR_SECOND_CHILD_WILMA_ICAL_URL"
 
+# ── Wilma messages / school reminders MVP ───────────────────────────────────
+# This is separate from the Wilma iCal schedule. The current phase can be tested
+# with wilma_reminders_check.py but is not rendered on the dashboard yet.
+# Keep real credentials ONLY in your local config.yaml and never commit/share it.
+wilma_messages:
+  provider: "live"
+  base_url: "https://YOUR-WILMA.inschool.fi"
+  username: "YOUR_WILMA_USERNAME"
+  password: "YOUR_WILMA_PASSWORD"
+  # Empty list = automatically use all children linked to the parent account.
+  child_ids: []
+  # Only recent message bodies are fetched each poll. Future reminders already
+  # extracted from older messages remain in local state until they expire.
+  limit_per_child: 20
+
 # ── Family reminders ─────────────────────────────────────────────────────────
 # V1 reads reminders directly from config.yaml. Later this module can be swapped
 # to Google Tasks/Todoist without changing the renderer.
@@ -126,5 +141,6 @@ partial_updates:
 cache:
   ttl_minutes: 55
   school_ttl_minutes: 55
+  wilma_messages_ttl_minutes: 30
   hsl_ttl_minutes: 10
   hsl_active_hours: [6, 22]

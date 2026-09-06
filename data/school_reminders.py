@@ -103,7 +103,7 @@ def _message_hash(message: dict) -> str:
         [ANALYZER_VERSION]
         + [
             str(message.get(key) or "")
-            for key in ("id", "sent_at", "subject", "body", "student_id")
+            for key in ("id", "sent_at", "subject", "body", "student", "student_id")
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -121,22 +121,30 @@ def _message_reference_date(message: dict, fallback: date) -> date:
 
 
 def _dedupe_reminders(reminders: list[dict]) -> list[dict]:
-    """Collapse exact reminder duplicates, e.g. the same notice under two children."""
+    """Collapse exact duplicates without losing which child the reminder belongs to."""
     result = []
     seen = set()
     for reminder in reminders:
         remember = tuple(sorted(str(item).strip().casefold() for item in reminder.get("remember") or []))
+        student_key = str(reminder.get("student_id") or reminder.get("student") or "").strip().casefold()
         key = (
             str(reminder.get("date") or ""),
             str(reminder.get("end_date") or ""),
             str(reminder.get("title") or "").strip().casefold(),
             remember,
+            student_key,
         )
         if key in seen:
             continue
         seen.add(key)
         result.append(reminder)
-    result.sort(key=lambda item: (item.get("date") or "", item.get("title") or ""))
+    result.sort(
+        key=lambda item: (
+            item.get("date") or "",
+            item.get("student") or "",
+            item.get("title") or "",
+        )
+    )
     return result
 
 

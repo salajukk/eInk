@@ -149,10 +149,16 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
 def _school_reminder_text(item: dict) -> str:
     """Compact one-line representation for the school-reminder strip."""
     day = _date_str(str(item.get("date") or ""), weekday=True).capitalize()
+    student = str(item.get("student") or "").strip()
     title = str(item.get("title") or "").strip()
     remember = [str(value).strip() for value in item.get("remember") or [] if str(value).strip()]
-    parts = [part for part in (day, title) if part]
-    text = " ".join(parts)
+
+    head = " ".join(part for part in (day, student) if part)
+    if student and title:
+        text = f"{head} · {title}"
+    else:
+        text = " ".join(part for part in (head, title) if part)
+
     if remember:
         text += (" · " if text else "") + " · ".join(remember)
     return text
@@ -164,7 +170,13 @@ def _draw_school_reminders(draw: ImageDraw.Draw, data: dict | None,
     stale = bool(data and data.get("_stale"))
     _section_label(draw, x, y, "KOULUSTA MUISTETTAVAA", stale=stale)
     items = list((data or {}).get("standalone") or [])
-    items.sort(key=lambda item: (str(item.get("date") or ""), str(item.get("title") or "")))
+    items.sort(
+        key=lambda item: (
+            str(item.get("date") or ""),
+            str(item.get("student") or ""),
+            str(item.get("title") or ""),
+        )
+    )
     items = items[:2]
 
     cy = y + 29

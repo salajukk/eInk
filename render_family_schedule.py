@@ -2,7 +2,9 @@
 
 Calendar events and school schedules come from separate data sources. This
 module merges them at render time. Today's panel remains chronological, while
-the upcoming panel groups future entries under weekday/date headings.
+the upcoming panel groups future entries under weekday/date headings. Wilma
+message reminders can enrich matching calendar events with short remember-items
+without creating duplicate schedule rows.
 """
 
 from datetime import date, datetime
@@ -44,13 +46,28 @@ def _end_hhmm(value: str | None) -> str | None:
         return None
 
 
-def _calendar_entry(ev: dict) -> dict:
+def _calendar_remember_items(ev: dict, school_reminders: dict | None) -> list[str]:
+    """Return remember-items attached to this exact reconciled calendar event."""
+    result: list[str] = []
+    for enrichment in (school_reminders or {}).get("enrichments") or []:
+        if not isinstance(enrichment, dict) or enrichment.get("event") != ev:
+            continue
+        reminder = enrichment.get("reminder") or {}
+        for item in reminder.get("remember") or []:
+            text = str(item).strip()
+            if text and text not in result:
+                result.append(text)
+    return result
+
+
+def _calendar_entry(ev: dict, school_reminders: dict | None = None) -> dict:
     return {
         "date": ev.get("date"),
         "start": ev.get("time"),
         "end": _end_hhmm(ev.get("end_time")),
         "title": str(ev.get("title", "")).strip(),
         "all_day": bool(ev.get("all_day")),
+        "remember": _calendar_remember_items(ev, school_reminders),
     }
 
 
@@ -67,6 +84,7 @@ def _school_entries(day: str, rows: list[dict]) -> list[dict]:
             "end": end,
             "title": f"{child.get('name', 'Lapsi')} koulu",
             "all_day": False,
+            "remember": [],
         })
     return entries
 
@@ -98,6 +116,7 @@ def _future_school_entries(school: dict | None) -> list[dict]:
                 "end": end,
                 "title": f"{child.get('name', 'Lapsi')} koulu",
                 "all_day": False,
+                "remember": [],
             })
     return entries
 
@@ -116,7 +135,7 @@ def _format_time_range(entry: dict) -> str:
 
 
 def _entry_text(entry: dict, include_day: bool = True) -> str:
-    """Return the complete display text for one schedule occurrence."""
+    """Return complete event text plus optional school remember-items."""
     day = (
         _date_str(str(entry.get("date") or ""), weekday=True).capitalize()
         if include_day
@@ -124,7 +143,13 @@ def _entry_text(entry: dict, include_day: bool = True) -> str:
     )
     title = str(entry.get("title") or "").strip()
     time_range = _format_time_range(entry)
-    return " ".join(part for part in (day, title, time_range) if part)
+    base = " ".join(part for part in (day, title, time_range) if part)
+
+    remember = [str(item).strip() for item in entry.get("remember") or [] if str(item).strip()]
+    if remember:
+        details = " · ".join(remember)
+        return f"{base} · {details}" if base else details
+    return base
 
 
 def _wrap_text(draw: ImageDraw.Draw, text: str, max_width: int) -> list[str]:
@@ -226,14 +251,15 @@ def _draw_grouped_upcoming_panel(draw: ImageDraw.Draw, entries: list[dict],
 
 
 def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
-                      school: dict | None, x: int, y: int, w: int, h: int):
+                      school: dict | None, x: int, y: int, w: int, h: int,
+                      school_reminders: dict | None = None):
     """Show the whole current day, including calendar events already ended."""
     stale = bool((calendar and calendar.get("_stale")) or
                  (school and school.get("_stale")))
     today_iso = date.today().isoformat()
 
     events = [
-        _calendar_entry(ev)
+        _calendar_entry(ev, school_reminders)
         for ev in (calendar or {}).get("events", [])
         if ev.get("date") == today_iso
     ]
@@ -246,14 +272,15 @@ def _draw_today_panel(draw: ImageDraw.Draw, calendar: dict | None,
 
 
 def _draw_upcoming_panel(draw: ImageDraw.Draw, calendar: dict | None,
-                         school: dict | None, x: int, y: int, w: int, h: int):
+                         school: dict | None, x: int, y: int, w: int, h: int,
+                         school_reminders: dict | None = None):
     """Group the next three future dates that contain calendar/school entries."""
     stale = bool((calendar and calendar.get("_stale")) or
                  (school and school.get("_stale")))
     today_iso = date.today().isoformat()
 
     calendar_entries = [
-        _calendar_entry(ev)
+        _calendar_entry(ev, school_reminders)
         for ev in (calendar or {}).get("events", [])
         if ev.get("date", "") > today_iso
     ]

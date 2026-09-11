@@ -2,15 +2,15 @@
 
 This branch keeps the original layouts available and adds a family-focused 13.3inch dashboard layout.
 
-The long-term target is still a Waveshare 13.3inch black/white e-paper wall display. The current MVP runs the **same 960x680 dashboard** on an existing Android tablet, now served by an always-on Raspberry Pi 5. The tablet phase is used to validate and refine the family dashboard before the physical 13.3inch e-paper output is connected.
+The currently deployed home display is an Android tablet served by an always-on Raspberry Pi 5. The **primary 960x680 family dashboard** still stays compatible with the possible future Waveshare 13.3inch black/white e-paper output, while the tablet browser may also provide optional interactive secondary views.
 
-The Android MVP must remain e-paper-compatible: one glanceable screen, black/white presentation, no required scrolling, animations or touch interaction, and the same 960x680 renderer that will later be used for the 13.3inch panel.
+The primary dashboard remains one glanceable black/white screen with no required scrolling or touch interaction. Tablet/browser-only views may use gestures and scrolling as long as they stay separate from the shared renderer and do not break the existing e-paper or 7.5inch paths.
 
 ## Supported display configurations
 
-### Current MVP / future 13.3inch target
+### Current shared 960x680 dashboard / possible future 13.3inch target
 
-Use the 13.3inch layout during the Android test as well:
+Use the 13.3inch layout for the primary tablet dashboard:
 
 ```yaml
 display:
@@ -21,7 +21,7 @@ display:
   layout: "family_13in3"
 ```
 
-On a normal development computer this configuration still uses the simulator/output PNG. On the Raspberry Pi, `web_dashboard.py` deliberately bypasses display hardware for the Android MVP; later `main.py` will select the physical Waveshare 13.3inch e-Paper HAT (K) adapter when the panel is connected and tested.
+On a normal development computer this configuration still uses the simulator/output PNG. On the Raspberry Pi, `web_dashboard.py` deliberately bypasses display hardware for the Android/tablet deployment; later `main.py` can select the physical Waveshare 13.3inch e-Paper HAT (K) adapter if the panel is connected and tested.
 
 ### Original 7.5inch Waveshare V2
 
@@ -58,9 +58,21 @@ The simulator writes the rendered image to:
 output/dashboard.png
 ```
 
-## 2. Android tablet MVP
+## 2. Android/tablet deployment
 
-`web_dashboard.py` is the browser-friendly output path for the MVP. It reuses the existing data modules and `family_13in3` renderer, writes the result to `output/dashboard.png`, and serves that PNG as a simple full-screen web page. It does **not** duplicate the dashboard UI in HTML and does not talk to e-paper hardware.
+`web_dashboard.py` is the browser output path. Its primary view reuses the existing data modules and `family_13in3` renderer, writes the result to `output/dashboard.png`, and serves that PNG full-screen. It does not talk to e-paper hardware.
+
+The tablet shell also has a separate interactive monthly calendar. This secondary view is browser-only: it is HTML/JavaScript around the shared dashboard rather than a change to `render_family_13in3.py`.
+
+Usage on the tablet:
+
+- primary view: the existing 960x680 family dashboard
+- swipe **right**: open the monthly calendar
+- swipe **left** from the month view: return to the primary dashboard
+- scroll vertically in the month view
+- use `‹` / `›` to move to the previous/next month
+
+The month table shows one row per day and one column per configured `calendars:` entry. It uses `data/calendar_month.py` to fetch every occurrence in the selected month instead of the compact 20-event cache used by the primary dashboard. See `TABLET_MONTH_CALENDAR.md`.
 
 The current home server is:
 
@@ -74,7 +86,7 @@ The current home server is:
 
 The home router has a DHCP reservation for the Raspberry Pi so the Android tablet can use a stable LAN IP. `.local` name resolution was not reliable on the tablet, so do not depend on `familydisplay.local` for the permanent tablet URL.
 
-The Raspberry-hosted MVP has been reboot-tested successfully: after restart the Pi rejoins Wi-Fi, `systemd` starts the supervisor, the supervisor starts `web_dashboard.py`, and the tablet receives a fresh dashboard without a Windows computer or open SSH session.
+The Raspberry-hosted deployment has been reboot-tested successfully: after restart the Pi rejoins Wi-Fi, `systemd` starts the supervisor, the supervisor starts `web_dashboard.py`, and the tablet receives a fresh dashboard without a Windows computer or open SSH session.
 
 For manual testing, start the server on a computer or Pi that is on the same trusted home network as the Android tablet.
 
@@ -98,7 +110,7 @@ Dashboard render: every 30 seconds
 Listen address:  0.0.0.0 (home LAN)
 ```
 
-The web MVP starts each server session with one forced fresh data fetch. After that it uses the normal module caches, but caps the generic calendar/weather-style cache at 5 minutes and the HSL cache at 1 minute. These shorter cache windows apply only to `web_dashboard.py`; they do not change the later e-paper deployment policy.
+The web server starts each session with one forced fresh primary-dashboard data fetch. After that it uses the normal module caches, but caps the generic calendar/weather-style cache at 5 minutes and the HSL cache at 1 minute. The same 5-minute generic cap is used for month-calendar requests.
 
 Cached HSL departure boards are also aged on every 30-second render, so buses/trains whose departure time has already passed are removed even before the next Digitransit API refresh.
 
@@ -110,7 +122,7 @@ http://localhost:8080
 
 Then open the same page on the Android tablet using the server's reserved LAN IP and port 8080.
 
-The browser page fits the 960x680 dashboard inside the available tablet screen without scrolling and automatically reloads the rendered PNG. Keep the tablet screen awake and use browser full-screen/kiosk presentation as practical during the kitchen test.
+The primary dashboard still fits inside the tablet screen without scrolling and automatically reloads the rendered PNG. The monthly calendar intentionally scrolls vertically because an entire month with multiple calendar columns cannot remain legible in a single 960x680 frame.
 
 Optional arguments:
 
@@ -118,14 +130,15 @@ Optional arguments:
 python web_dashboard.py --port 8080 --refresh-seconds 30 --config config.yaml
 ```
 
-For a one-off diagnostic, the server also exposes:
+For diagnostics, the server exposes:
 
 ```text
 /health
 /dashboard.png
+/calendar-month.json?year=2026&month=9
 ```
 
-Keep this server on the trusted home LAN. Do not expose or port-forward it to the public internet because the rendered dashboard can contain private family calendar information.
+Keep this server on the trusted home LAN. Do not expose or port-forward it to the public internet because both the rendered dashboard and the month endpoint can contain private family calendar information.
 
 See `AUTO_UPDATE.md` for the supervisor and `systemd` deployment details.
 
@@ -137,13 +150,14 @@ python main.py --only calendar --no-cache
 python main.py --only hsl --no-cache
 python main.py --only school --no-cache
 python main.py --only tasks
+python -m unittest tests.test_calendar_month -v
 ```
 
 Use `--no-cache` when checking a calendar edit or troubleshooting a departure feed so the diagnostic shows the source data rather than an older cache entry.
 
 ## 4. Physical 13.3inch setup on the Raspberry Pi 5
 
-The Raspberry Pi 5 is already installed and serving the Android MVP. The next hardware step is to verify the physical Waveshare 13.3inch HAT (K) path specifically on this Pi 5.
+The Raspberry Pi 5 is already installed and serving the tablet. If the physical e-paper phase is pursued, the next hardware step is to verify the Waveshare 13.3inch HAT (K) path specifically on this Pi 5.
 
 Enable SPI first with Raspberry Pi configuration tools.
 
@@ -201,7 +215,7 @@ That file installs `betterepd7in5` in addition to the common dependencies. The 7
 
 ## 7. Dedicated e-paper deployment
 
-This deployment path remains available for the later physical-display phase.
+This deployment path remains available for a possible physical-display phase.
 
 Copy the deployment template and set the Raspberry Pi SSH target:
 
@@ -235,19 +249,25 @@ For the 13.3inch model the minute-level `--partial-only` cron invocations are cu
 
 ## Architecture
 
-The data/rendering flow stays intentionally shared between outputs:
+The core primary-dashboard flow remains shared:
 
 ```text
-data/<feature>.py -> renderer -> PNG / display output
+data/<feature>.py -> render_family_13in3.py -> 960x680 image
 ```
 
-Android MVP:
+Tablet primary view:
 
 ```text
 data modules -> render_family_13in3.py -> output/dashboard.png -> web_dashboard.py -> Android browser
 ```
 
-Future 13.3inch e-paper:
+Tablet monthly calendar:
+
+```text
+configured iCal feeds -> data/calendar_month.py -> /calendar-month.json -> web_dashboard.py HTML/JS
+```
+
+Possible future 13.3inch e-paper:
 
 ```text
 data modules -> render_family_13in3.py -> display/epaper_13in3.py -> Waveshare panel
@@ -257,16 +277,16 @@ Family renderers:
 
 ```text
 render_family.py          800x480 / 7.5inch
-render_family_13in3.py    960x680 / Android MVP + 13.3inch K
+render_family_13in3.py    960x680 / primary tablet dashboard + 13.3inch K
 ```
 
 Hardware/output adapters:
 
 ```text
-web_dashboard.py          Android/browser MVP output
+web_dashboard.py          Android/browser output + tablet-only secondary views
 display/epaper.py         Waveshare 7.5inch V2
 display/epaper_13in3.py   Waveshare 13.3inch HAT (K)
 display/simulator.py      development preview
 ```
 
-`main.py` chooses the hardware adapter from `display.model` only when it is actually running on a Raspberry Pi. On a normal development computer it always uses the simulator. `web_dashboard.py` bypasses display hardware entirely and serves the same rendered 960x680 image to the tablet browser.
+`main.py` chooses the hardware adapter from `display.model` only when it is actually running on a Raspberry Pi. On a normal development computer it always uses the simulator. `web_dashboard.py` bypasses display hardware entirely and serves the shared rendered 960x680 image to the tablet browser, with optional browser-only views layered around it.

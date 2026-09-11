@@ -2,7 +2,7 @@
 
 This branch keeps the original layouts available and adds a family-focused 13.3inch dashboard layout.
 
-The long-term target is still a Waveshare 13.3inch black/white e-paper wall display, but the current MVP runs the **same 960x680 dashboard** on an existing Android tablet first. The tablet phase is used to validate whether an always-visible family dashboard is useful enough to justify the dedicated e-paper + Raspberry Pi hardware.
+The long-term target is still a Waveshare 13.3inch black/white e-paper wall display. The current MVP runs the **same 960x680 dashboard** on an existing Android tablet, now served by an always-on Raspberry Pi 5. The tablet phase is used to validate and refine the family dashboard before the physical 13.3inch e-paper output is connected.
 
 The Android MVP must remain e-paper-compatible: one glanceable screen, black/white presentation, no required scrolling, animations or touch interaction, and the same 960x680 renderer that will later be used for the 13.3inch panel.
 
@@ -21,7 +21,7 @@ display:
   layout: "family_13in3"
 ```
 
-On a normal development computer this configuration still uses the simulator/output PNG. On the future Raspberry Pi it selects the physical Waveshare 13.3inch e-Paper HAT (K) adapter.
+On a normal development computer this configuration still uses the simulator/output PNG. On the Raspberry Pi, `web_dashboard.py` deliberately bypasses display hardware for the Android MVP; later `main.py` will select the physical Waveshare 13.3inch e-Paper HAT (K) adapter when the panel is connected and tested.
 
 ### Original 7.5inch Waveshare V2
 
@@ -62,7 +62,21 @@ output/dashboard.png
 
 `web_dashboard.py` is the browser-friendly output path for the MVP. It reuses the existing data modules and `family_13in3` renderer, writes the result to `output/dashboard.png`, and serves that PNG as a simple full-screen web page. It does **not** duplicate the dashboard UI in HTML and does not talk to e-paper hardware.
 
-Start it on a computer that is on the same trusted home network as the Android tablet.
+The current home server is:
+
+- Raspberry Pi 5, 2 GB RAM
+- Raspberry Pi OS Lite 64-bit
+- Kingston 64 GB microSD
+- official Raspberry Pi 5 27 W USB-C power supply
+- hostname `familydisplay`
+- repository checkout on `family-dashboard-v1`
+- `dashboard_supervisor.py` running as boot-enabled `family-dashboard.service`
+
+The home router has a DHCP reservation for the Raspberry Pi so the Android tablet can use a stable LAN IP. `.local` name resolution was not reliable on the tablet, so do not depend on `familydisplay.local` for the permanent tablet URL.
+
+The Raspberry-hosted MVP has been reboot-tested successfully: after restart the Pi rejoins Wi-Fi, `systemd` starts the supervisor, the supervisor starts `web_dashboard.py`, and the tablet receives a fresh dashboard without a Windows computer or open SSH session.
+
+For manual testing, start the server on a computer or Pi that is on the same trusted home network as the Android tablet.
 
 Windows PowerShell:
 
@@ -70,7 +84,7 @@ Windows PowerShell:
 .\venv\Scripts\python.exe web_dashboard.py
 ```
 
-macOS/Linux:
+macOS/Linux/Raspberry Pi:
 
 ```bash
 venv/bin/python web_dashboard.py
@@ -88,19 +102,13 @@ The web MVP starts each server session with one forced fresh data fetch. After t
 
 Cached HSL departure boards are also aged on every 30-second render, so buses/trains whose departure time has already passed are removed even before the next Digitransit API refresh.
 
-First verify on the computer itself:
+First verify on the server itself:
 
 ```text
 http://localhost:8080
 ```
 
-Then open the same page on the Android tablet using the computer's LAN IP, for example:
-
-```text
-http://192.168.1.10:8080
-```
-
-The exact LAN IP depends on the computer/network. On Windows, `ipconfig` can be used to find the IPv4 address. If Windows Firewall asks for permission, allow the server on the **private/home network only**.
+Then open the same page on the Android tablet using the server's reserved LAN IP and port 8080.
 
 The browser page fits the 960x680 dashboard inside the available tablet screen without scrolling and automatically reloads the rendered PNG. Keep the tablet screen awake and use browser full-screen/kiosk presentation as practical during the kitchen test.
 
@@ -119,6 +127,8 @@ For a one-off diagnostic, the server also exposes:
 
 Keep this server on the trusted home LAN. Do not expose or port-forward it to the public internet because the rendered dashboard can contain private family calendar information.
 
+See `AUTO_UPDATE.md` for the supervisor and `systemd` deployment details.
+
 ## 3. Data-module tests
 
 ```bash
@@ -131,22 +141,23 @@ python main.py --only tasks
 
 Use `--no-cache` when checking a calendar edit or troubleshooting a departure feed so the diagnostic shows the source data rather than an older cache entry.
 
-## 4. Raspberry Pi setup for the future 13.3inch display
+## 4. Physical 13.3inch setup on the Raspberry Pi 5
 
-This phase is intentionally after the Android MVP decision gate.
+The Raspberry Pi 5 is already installed and serving the Android MVP. The next hardware step is to verify the physical Waveshare 13.3inch HAT (K) path specifically on this Pi 5.
 
 Enable SPI first with Raspberry Pi configuration tools.
 
-Then install the 13.3inch hardware dependencies inside the project virtual environment:
+Then install the 13.3inch hardware dependencies inside the existing project virtual environment:
 
 ```bash
 cd ~/eInk
-python3 -m venv venv
 venv/bin/pip install -r requirements-pi-13in3.txt
 mkdir -p cache output
 ```
 
-`requirements-pi-13in3.txt` installs the common dashboard dependencies plus the Waveshare vendor driver and Raspberry Pi SPI/GPIO dependencies.
+If setting up a fresh Pi from scratch, create the virtual environment first with `python3 -m venv venv`.
+
+`requirements-pi-13in3.txt` installs the common dashboard dependencies plus the Waveshare vendor driver and Raspberry Pi SPI/GPIO dependencies. Because the final computer is a Raspberry Pi 5 rather than the earlier Pi 3 A+ plan, treat the real hardware smoke test as the compatibility gate for the driver/GPIO path.
 
 Before connecting the full dashboard to the display, run the minimal hardware smoke test:
 
@@ -154,7 +165,7 @@ Before connecting the full dashboard to the display, run the minimal hardware sm
 venv/bin/python test_display_13in3.py
 ```
 
-If the bordered test page appears, SPI, the HAT, the Waveshare driver and the panel are working.
+If the bordered test page appears, SPI, the HAT, the Waveshare driver and the panel are working on the Pi 5.
 
 Then test the real dashboard:
 
@@ -166,7 +177,7 @@ venv/bin/python main.py --no-cache --full-refresh
 
 Partial refresh is intentionally disabled for `waveshare_13in3k` for the first hardware version.
 
-The Waveshare partial-update sequence expects the panel RAM to be primed with `display_Base()` in the same powered session. The dashboard currently runs as short-lived cron processes, so blindly reusing the 7.5inch cross-process partial-refresh strategy would be risky. `main.py --partial-only` therefore safely skips a tick on the 13.3inch model instead of refreshing the panel incorrectly.
+The Waveshare partial-update sequence expects the panel RAM to be primed with `display_Base()` in the same powered session. The dedicated e-paper path currently runs as short-lived processes, so blindly reusing the 7.5inch cross-process partial-refresh strategy would be risky. `main.py --partial-only` therefore safely skips a tick on the 13.3inch model instead of refreshing the panel incorrectly.
 
 Use this configuration initially:
 
@@ -190,7 +201,7 @@ That file installs `betterepd7in5` in addition to the common dependencies. The 7
 
 ## 7. Dedicated e-paper deployment
 
-This deployment path remains available for the later hardware phase.
+This deployment path remains available for the later physical-display phase.
 
 Copy the deployment template and set the Raspberry Pi SSH target:
 
@@ -203,6 +214,8 @@ Example:
 ```bash
 PI_TARGET=youruser@familydisplay.local
 ```
+
+If `.local` name resolution is unavailable on the machine running the sync, use the Pi's reserved LAN IP instead.
 
 `deploy.env` and `config.yaml` are gitignored and must contain the real machine-specific settings and secrets only locally.
 

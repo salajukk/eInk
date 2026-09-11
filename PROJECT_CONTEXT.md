@@ -6,11 +6,11 @@ This file is the short shared context for conversations about the software, hard
 
 A lightweight family information display for the home. The dashboard combines the family's useful daily information into one glanceable view: clock/date, weather, HSL departures, today's and upcoming calendar/school events, reminders and forecast.
 
-The long-term target remains a 13.3inch black/white e-paper panel with a 960x680 dashboard, designed to look more like a framed information board than a conventional tablet. The concept is currently being tested in everyday use on an existing Android tablet placed in the kitchen. The Raspberry Pi portion of the dedicated hardware has now been purchased and deployed as the always-on tablet-dashboard server; the physical 13.3inch e-paper panel remains the next hardware-output step.
+The currently deployed product is an Android tablet in the kitchen, served by an always-on Raspberry Pi 5. The original 13.3inch black/white e-paper concept remains a possible later output path, but the successful tablet MVP now justifies using tablet-specific interaction when it adds clear family value.
 
-The Android phase is an MVP of the **same dashboard**, not a separate tablet product. Keep the dashboard content, layout and visual constraints e-paper-compatible: 960x680 target canvas, black/white presentation, glanceable single-screen layout, and no dependency on animations, scrolling or tablet-only interaction. The MVP can be iterated and improved while running on the tablet. When the physical e-paper phase begins, the same dashboard should move to Raspberry Pi + 13.3inch e-paper by changing/adapting the display output layer rather than redesigning the view.
+The **primary family dashboard** must still stay shared and e-paper-compatible: 960x680 target canvas, black/white presentation, glanceable single-screen layout, and no required scrolling or touch interaction. Tablet/browser-only secondary views may now use interaction such as swiping and scrolling without forcing those features into the e-paper renderer. This keeps the main dashboard portable while allowing the tablet installation to evolve beyond a static e-paper preview.
 
-Current priority is to validate the usefulness and content of the continuously visible family dashboard on Android, keep the Raspberry Pi server deployment stable, and preserve a straightforward migration path to the planned e-paper hardware.
+Current priority is to improve the real kitchen-tablet experience while keeping the Raspberry Pi server deployment stable. Preserve the shared 960x680 dashboard and existing e-paper/7.5inch paths, but do not reject useful tablet-only secondary views merely because they cannot be reproduced on e-paper.
 
 ## Repository
 
@@ -28,17 +28,19 @@ Keep the current pull request as draft until the real Raspberry Pi + 13.3inch e-
 
 The first real-life display uses an existing Android tablet with a stand in the kitchen.
 
-Goals of the MVP:
+Goals of the current tablet phase:
 
-- test whether a continuously visible family dashboard provides enough everyday value to justify the dedicated e-paper display hardware
-- keep the current dashboard view and continue improving its content/layout during the test
-- preserve the 960x680 black/white e-paper design constraints throughout the MVP
-- keep data fetching and dashboard rendering as device-independent as practical
-- treat Android and future e-paper support as different display/output targets for the same dashboard
+- keep the continuously visible primary family dashboard fast and glanceable
+- continue improving its content/layout based on real family use
+- preserve the shared 960x680 black/white primary renderer for optional future e-paper output
+- allow useful browser-only secondary views, such as a swipeable monthly calendar
+- keep data fetching and the core dashboard rendering device-independent as practical
 
-The MVP should avoid tablet-specific features that would make later e-paper migration difficult. Prefer a simple full-screen/kiosk-style presentation of the rendered dashboard and automatic refreshes.
+The primary dashboard should still behave like an always-visible information board. Tablet-only interaction should live in the browser shell around it rather than being required by the shared renderer.
 
-The browser output is implemented in `web_dashboard.py`. It reuses the existing data modules and `render_family_13in3.py`, writes the same 960x680 dashboard to `output/dashboard.png`, and serves it to the Android browser over the trusted home LAN. It intentionally does not reimplement the dashboard as an HTML UI. Default render interval is 30 seconds and default HTTP port is 8080. See `FAMILY_DASHBOARD.md` for startup/testing instructions.
+The browser output is implemented in `web_dashboard.py`. It reuses the existing data modules and `render_family_13in3.py`, writes the shared 960x680 dashboard to `output/dashboard.png`, and serves it to the Android browser over the trusted home LAN. The primary view remains that rendered PNG.
+
+The tablet web shell now also has a secondary monthly calendar view. Swiping right from the primary dashboard opens a vertically scrollable month table; swiping left returns to the primary dashboard. The table shows one row per day and one column per configured iCal calendar, with previous/next-month controls. Month data comes from `data/calendar_month.py`, which is deliberately separate from the compact `data/calendar.py` path used by the main dashboard. See `TABLET_MONTH_CALENDAR.md`.
 
 The preferred MVP server launcher is `dashboard_supervisor.py`. It runs `web_dashboard.py`, checks `origin/family-dashboard-v1` every 60 seconds, performs only safe fast-forward pulls when a newer commit is available, and restarts the web dashboard so repository changes take effect automatically. Tracked local edits block an automatic update rather than being overwritten. `config.yaml` and credentials remain local/gitignored. This allows future dashboard changes committed through GitHub (including changes requested from a phone) to propagate to the home server without manually running `git pull`. See `AUTO_UPDATE.md` for details.
 
@@ -46,7 +48,7 @@ The permanent MVP server is now a Raspberry Pi 5 (2 GB) running Raspberry Pi OS 
 
 The Raspberry deployment has been reboot-tested successfully: after power/reboot it rejoins Wi-Fi, starts the supervisor automatically and serves a freshly rendered dashboard to the tablet without a Windows machine or open SSH session.
 
-## Hardware – current Raspberry / planned e-paper phase
+## Hardware – current Raspberry / optional e-paper phase
 
 Current purchased and deployed Raspberry hardware:
 
@@ -54,7 +56,7 @@ Current purchased and deployed Raspberry hardware:
 - Kingston 64 GB Canvas Select Plus Gen3 UHS-I microSD card
 - official Raspberry Pi 5 27 W USB-C power supply
 
-Planned display hardware remains:
+Possible later display hardware remains:
 
 - Waveshare 13.3inch e-Paper HAT (K), black/white, 960x680, SPI
 
@@ -66,9 +68,9 @@ The 13.3inch hardware adapter is implemented in `display/epaper_13in3.py`. Parti
 
 Keep existing 7.5inch display support intact unless there is a separate reason to change it.
 
-## Frame / enclosure – planned e-paper phase
+## Frame / enclosure – possible e-paper phase
 
-The first enclosure should contain only:
+If the e-paper phase is pursued, the first enclosure should contain only:
 
 - the 13.3inch e-paper panel
 - Raspberry Pi 5 (2 GB)
@@ -86,9 +88,9 @@ The design goal is a thin, light object that looks like a normal framed picture 
 
 ## Current software state
 
-The 13.3inch simulator layout is working at 960x680. The Android MVP has a browser-friendly output path in `web_dashboard.py`, which keeps the same renderer and serves the generated PNG to a tablet without invoking e-paper hardware.
+The shared family layout is working at 960x680. The Android/tablet path in `web_dashboard.py` serves the same rendered PNG as its primary view without invoking e-paper hardware.
 
-The browser/tablet path is now running successfully on the Raspberry Pi 5. The Pi installation uses a project virtual environment, local gitignored `config.yaml`, `dashboard_supervisor.py`, and a boot-enabled `family-dashboard.service`. The full data/render path has been verified after reboot on the Raspberry-hosted server.
+The browser/tablet path is running successfully on the Raspberry Pi 5. The Pi installation uses a project virtual environment, local gitignored `config.yaml`, `dashboard_supervisor.py`, and a boot-enabled `family-dashboard.service`. The full data/render path has been verified after reboot on the Raspberry-hosted server.
 
 Current data sources/features include:
 
@@ -101,13 +103,15 @@ Current data sources/features include:
 
 Today's events remain visible for the whole day, even after their end time. Calendar and school entries are merged chronologically and displayed without calendar-source labels. The TULEVAT panel groups the next three future dates that have content under weekday/date headings; repeated event titles are allowed and long event text wraps instead of being truncated.
 
-The Android MVP refreshes the rendered dashboard every 30 seconds. HSL cached departures are aged on every render, with the HSL cache capped at one minute for the web MVP, while the generic calendar/weather-style cache is capped at five minutes. The server session starts with a forced fresh data fetch.
+The tablet web shell also has a separate full-month calendar. It fetches every occurrence for the selected month from all configured `calendars:` sources and presents them as calendar columns with day rows. The month view is intentionally allowed to scroll vertically and is not part of the e-paper renderer.
 
-The Wilma-message reminder MVP is now wired into the shared data/render path for the 960x680 layout. `integrations/wilma_messages.py` contains fixture and live message-source adapters, `analysis/wilma_reminders.py` contains conservative replaceable Finnish text analysis, and `data/school_reminders.py` contains expiry plus local hash/reminder state. Raw Wilma message bodies are analyzed in memory and are not persisted. `main.py` reconciles active reminders with the already-fetched family calendar at presentation time: safe matches enrich the existing calendar event with remember-items, while unmatched reminders appear in a compact `KOULUSTA MUISTETTAVAA` area. At most two standalone school reminders are shown. The 7.5-inch renderer remains unchanged. See `WILMA_REMINDERS.md`.
+The Android/tablet primary dashboard refreshes the rendered image every 30 seconds. HSL cached departures are aged on every render, with the HSL cache capped at one minute for the web MVP, while the generic calendar/weather-style cache is capped at five minutes. The monthly calendar uses the same generic web cache cap and refreshes while open. The server session starts with a forced fresh primary-dashboard data fetch.
+
+The Wilma-message reminder MVP is wired into the shared data/render path for the 960x680 layout. `integrations/wilma_messages.py` contains fixture and live message-source adapters, `analysis/wilma_reminders.py` contains conservative replaceable Finnish text analysis, and `data/school_reminders.py` contains expiry plus local hash/reminder state. Raw Wilma message bodies are analyzed in memory and are not persisted. `main.py` reconciles active reminders with the already-fetched family calendar at presentation time: safe matches enrich the existing calendar event with remember-items, while unmatched reminders appear in a compact `KOULUSTA MUISTETTAVAA` area. At most two standalone school reminders are shown. The 7.5-inch renderer remains unchanged. See `WILMA_REMINDERS.md`.
 
 Google Tasks integration is a later backlog item. The intended future behaviour is to merge both users' open personal Google Tasks into one nameless `MUISTETTAVAA` list without owner prefixes.
 
-Software changes for the Android MVP should remain small and controlled. Continue improving the browser/output deployment path around the existing rendering and data logic rather than duplicating the dashboard implementation. The e-paper adapter and existing display support should remain available for the later hardware phase.
+Software changes should remain small and controlled. Keep the shared primary renderer and data modules reusable, while allowing clearly separated tablet/browser enhancements in `web_dashboard.py` and dedicated web-only helpers. The e-paper adapter and existing display support should remain available rather than constraining the tablet experience.
 
 ## Privacy / secrets
 

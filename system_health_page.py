@@ -13,9 +13,6 @@ def collect_system_payload() -> dict:
         history = record_history(snapshot)
         return {"snapshot": snapshot, "history": history, "stale": False}
     except Exception:
-        # A stale snapshot is more useful on the diagnostic page than a blank
-        # screen if one collector fails unexpectedly. The HTTP handler logs the
-        # original exception when this helper cannot return any snapshot at all.
         snapshot = load_snapshot()
         if snapshot is None:
             raise
@@ -24,7 +21,7 @@ def collect_system_payload() -> dict:
 
 def system_page() -> bytes:
     """Return the standalone /system page; no external JS/CSS dependencies."""
-    page = """<!doctype html>
+    page = r'''<!doctype html>
 <html lang="fi">
 <head>
   <meta charset="utf-8">
@@ -33,85 +30,32 @@ def system_page() -> bytes:
   <title>Family Display · System</title>
   <style>
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: #fff;
-      color: #111;
-      font-family: Arial, Helvetica, sans-serif;
-    }
-    main {
-      width: min(960px, 100%);
-      margin: 0 auto;
-      padding: 18px 20px 36px;
-    }
+    body { margin: 0; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; }
+    main { width: min(960px, 100%); margin: 0 auto; padding: 18px 20px 36px; }
     header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      border-bottom: 2px solid #111;
-      padding-bottom: 12px;
-      margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 16px;
     }
     h1 { margin: 0; font-size: 28px; }
     a { color: #111; font-weight: 700; text-decoration: none; }
-    #status-line {
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
+    #status-line { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
     #overall {
-      border: 2px solid #111;
-      border-radius: 18px;
-      padding: 5px 12px;
-      font-weight: 800;
-      letter-spacing: .04em;
+      border: 2px solid #111; border-radius: 18px; padding: 5px 12px;
+      font-weight: 800; letter-spacing: .04em;
     }
     #stale { color: #666; font-size: 13px; }
     .metrics {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 18px;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px; margin-bottom: 18px;
     }
-    .metric {
-      border: 1px solid #777;
-      border-radius: 8px;
-      padding: 10px 12px;
-      min-height: 76px;
-    }
-    .metric .label {
-      color: #555;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-    .metric .value {
-      margin-top: 5px;
-      font-size: 21px;
-      font-weight: 700;
-      overflow-wrap: anywhere;
-    }
-    #issues {
-      border-top: 1px solid #aaa;
-      border-bottom: 1px solid #aaa;
-      padding: 10px 0;
-      margin-bottom: 18px;
-    }
+    .metric { border: 1px solid #777; border-radius: 8px; padding: 10px 12px; min-height: 76px; }
+    .metric .label { color: #555; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .metric .value { margin-top: 5px; font-size: 21px; font-weight: 700; overflow-wrap: anywhere; }
+    #issues { border-top: 1px solid #aaa; border-bottom: 1px solid #aaa; padding: 10px 0; margin-bottom: 18px; }
     #issues.ok { color: #444; }
     #issues ul { margin: 6px 0 0 20px; padding: 0; }
-    .charts {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .chart-card {
-      border: 1px solid #999;
-      border-radius: 8px;
-      padding: 10px;
-      min-width: 0;
-    }
+    .charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .chart-card { border: 1px solid #999; border-radius: 8px; padding: 10px; min-width: 0; }
     .chart-card h2 { margin: 0 0 4px; font-size: 15px; }
     .chart-card .range { color: #666; font-size: 11px; margin-bottom: 5px; }
     canvas { width: 100%; height: 120px; display: block; }
@@ -128,13 +72,11 @@ def system_page() -> bytes:
 <main>
   <header>
     <h1>Raspberry Pi Health</h1>
-    <a href="/">← Perheen näyttö</a>
+    <a href="/" target="_top">← Perheen näyttö</a>
   </header>
 
   <div id="status-line">
-    <span id="overall">LOADING</span>
-    <span id="last-check"></span>
-    <span id="stale"></span>
+    <span id="overall">LOADING</span><span id="last-check"></span><span id="stale"></span>
   </div>
 
   <section class="metrics">
@@ -163,16 +105,12 @@ def system_page() -> bytes:
 </main>
 <script>
   const byId = (id) => document.getElementById(id);
-
-  function value(value, suffix = "") {
-    return value === null || value === undefined ? "–" : `${value}${suffix}`;
-  }
+  const value = (v, suffix = "") => (v === null || v === undefined ? "–" : `${v}${suffix}`);
 
   function formatUptime(seconds) {
     if (seconds === null || seconds === undefined) return "–";
     let remaining = Math.max(0, Number(seconds));
-    const days = Math.floor(remaining / 86400);
-    remaining %= 86400;
+    const days = Math.floor(remaining / 86400); remaining %= 86400;
     const hours = Math.floor(remaining / 3600);
     const minutes = Math.floor((remaining % 3600) / 60);
     const parts = [];
@@ -195,11 +133,9 @@ def system_page() -> bytes:
     const width = Math.max(240, Math.round(rect.width));
     const height = 120;
     const scale = window.devicePixelRatio || 1;
-    canvas.width = width * scale;
-    canvas.height = height * scale;
+    canvas.width = width * scale; canvas.height = height * scale;
     const ctx = canvas.getContext("2d");
-    ctx.scale(scale, scale);
-    ctx.clearRect(0, 0, width, height);
+    ctx.scale(scale, scale); ctx.clearRect(0, 0, width, height);
 
     const samples = points
       .map((point) => ({time: new Date(point.checked_at).getTime(), value: Number(point[key])}))
@@ -207,8 +143,7 @@ def system_page() -> bytes:
 
     if (!samples.length) {
       byId(rangeId).textContent = "Ei historiatietoa vielä";
-      ctx.fillStyle = "#777";
-      ctx.font = "12px Arial";
+      ctx.fillStyle = "#777"; ctx.font = "12px Arial";
       ctx.fillText("Historia kertyy tarkistuksista", 8, 24);
       return;
     }
@@ -217,24 +152,17 @@ def system_page() -> bytes:
     let maxValue = Math.max(...samples.map((sample) => sample.value));
     if (minValue === maxValue) { minValue -= 1; maxValue += 1; }
     const padding = Math.max(1, (maxValue - minValue) * 0.15);
-    minValue -= padding;
-    maxValue += padding;
+    minValue -= padding; maxValue += padding;
 
     const minTime = samples[0].time;
     const maxTime = samples[samples.length - 1].time;
     const timeSpan = Math.max(1, maxTime - minTime);
     const left = 8, right = width - 8, top = 8, bottom = height - 18;
 
-    ctx.strokeStyle = "#ddd";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(left, bottom);
-    ctx.lineTo(right, bottom);
-    ctx.stroke();
+    ctx.strokeStyle = "#ddd"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(left, bottom); ctx.lineTo(right, bottom); ctx.stroke();
 
-    ctx.strokeStyle = "#111";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
+    ctx.strokeStyle = "#111"; ctx.lineWidth = 2; ctx.beginPath();
     samples.forEach((sample, index) => {
       const x = left + ((sample.time - minTime) / timeSpan) * (right - left);
       const y = bottom - ((sample.value - minValue) / (maxValue - minValue)) * (bottom - top);
@@ -242,10 +170,8 @@ def system_page() -> bytes:
     });
     ctx.stroke();
 
-    const realValues = samples.map((sample) => sample.value);
-    const realMin = Math.min(...realValues).toFixed(1);
-    const realMax = Math.max(...realValues).toFixed(1);
-    byId(rangeId).textContent = `${realMin}${suffix} – ${realMax}${suffix} · ${samples.length} pistettä`;
+    const values = samples.map((sample) => sample.value);
+    byId(rangeId).textContent = `${Math.min(...values).toFixed(1)}${suffix} – ${Math.max(...values).toFixed(1)}${suffix} · ${samples.length} pistettä`;
   }
 
   function render(data) {
@@ -254,7 +180,6 @@ def system_page() -> bytes:
     byId("overall").textContent = String(snapshot.status || "unknown").toUpperCase();
     byId("last-check").textContent = formatCheck(snapshot.checked_at);
     byId("stale").textContent = data.stale ? "(viimeisin tallennettu tieto)" : "";
-
     byId("temperature").textContent = value(snapshot.temperature_c, " °C");
     byId("cpu").textContent = value(snapshot.cpu_load_1m);
     byId("memory").textContent = value(snapshot.memory_percent, " %");
@@ -268,21 +193,17 @@ def system_page() -> bytes:
     const issues = Array.isArray(snapshot.issues) ? snapshot.issues : [];
     const issuesBox = byId("issues");
     if (!issues.length) {
-      issuesBox.className = "ok";
-      issuesBox.textContent = "Ei havaittuja ongelmia.";
+      issuesBox.className = "ok"; issuesBox.textContent = "Ei havaittuja ongelmia.";
     } else {
-      issuesBox.className = "";
-      issuesBox.replaceChildren();
-      const title = document.createElement("strong");
-      title.textContent = "Havaitut ongelmat";
-      issuesBox.appendChild(title);
+      issuesBox.className = ""; issuesBox.replaceChildren();
+      const title = document.createElement("strong"); title.textContent = "Havaitut ongelmat";
       const list = document.createElement("ul");
       issues.forEach((issue) => {
         const item = document.createElement("li");
         item.textContent = `${String(issue.severity || "").toUpperCase()}: ${issue.message || issue.code || ""}`;
         list.appendChild(item);
       });
-      issuesBox.appendChild(list);
+      issuesBox.appendChild(title); issuesBox.appendChild(list);
     }
 
     drawChart("temperature-chart", "temperature-range", history, "temperature_c", " °C");
@@ -303,11 +224,31 @@ def system_page() -> bytes:
     }
   }
 
+  let touchStartX = null;
+  let touchStartY = null;
+  document.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1) return;
+    touchStartX = event.touches[0].clientX;
+    touchStartY = event.touches[0].clientY;
+  }, {passive: true});
+  document.addEventListener("touchend", (event) => {
+    if (touchStartX === null || touchStartY === null || !event.changedTouches.length) return;
+    const dx = event.changedTouches[0].clientX - touchStartX;
+    const dy = event.changedTouches[0].clientY - touchStartY;
+    touchStartX = null; touchStartY = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.25 || dx >= 0) return;
+    if (window.parent !== window) {
+      window.parent.postMessage({type: "family-display-system-swipe-left"}, window.location.origin);
+    } else {
+      window.location.href = "/";
+    }
+  }, {passive: true});
+
   refresh();
   setInterval(refresh, 5 * 60 * 1000);
   window.addEventListener("resize", () => refresh());
 </script>
 </body>
 </html>
-"""
+'''
     return page.encode("utf-8")

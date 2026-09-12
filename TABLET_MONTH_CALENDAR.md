@@ -1,7 +1,7 @@
 # Tablet month calendar
 
-The Android/tablet web output has an optional interactive second view in addition
-to the shared 960x680 family dashboard.
+The Android/tablet web output has an interactive monthly-calendar view in addition
+to the shared 960x680 family dashboard and the Raspberry Pi system-health view.
 
 The primary dashboard remains unchanged and continues to use
 `render_family_13in3.py` + `output/dashboard.png`, preserving the later e-paper
@@ -10,10 +10,18 @@ output path. The monthly calendar is tablet/browser-only and does not change the
 
 ## Usage
 
-On the normal family dashboard:
+The tablet shell now has three horizontal views:
 
-- swipe **right** to open the monthly calendar
-- swipe **left** on the monthly calendar to return to the family dashboard
+```text
+System health  ←  Family dashboard  →  Monthly calendar
+```
+
+Gesture directions are based on the finger movement:
+
+- from the family dashboard, swipe **right** to open Raspberry Pi system health
+- from system health, swipe **left** to return to the family dashboard
+- from the family dashboard, swipe **left** to open the monthly calendar
+- from the monthly calendar, swipe **right** to return to the family dashboard
 - scroll vertically to move through the days of the month
 - use the `‹` / `›` buttons to open the previous or next month
 
@@ -60,8 +68,14 @@ The month data helper has unit tests in:
 tests/test_calendar_month.py
 ```
 
+The three-view swipe shell has focused checks in:
+
+```text
+tests/test_swipe_navigation.py
+```
+
 Run them with the project virtual environment, for example on Raspberry Pi:
 
 ```bash
-venv/bin/python -m unittest tests.test_calendar_month -v
+venv/bin/python -m unittest tests.test_calendar_month tests.test_swipe_navigation -v
 ```

@@ -33,14 +33,14 @@ Goals of the current tablet phase:
 - keep the continuously visible primary family dashboard fast and glanceable
 - continue improving its content/layout based on real family use
 - preserve the shared 960x680 black/white primary renderer for optional future e-paper output
-- allow useful browser-only secondary views, such as a swipeable monthly calendar
+- allow useful browser-only secondary views, such as a swipeable monthly calendar and Raspberry Pi health view
 - keep data fetching and the core dashboard rendering device-independent as practical
 
 The primary dashboard should still behave like an always-visible information board. Tablet-only interaction should live in the browser shell around it rather than being required by the shared renderer.
 
 The browser output is implemented in `web_dashboard.py`. It reuses the existing data modules and `render_family_13in3.py`, writes the shared 960x680 dashboard to `output/dashboard.png`, and serves it to the Android browser over the trusted home LAN. The primary view remains that rendered PNG.
 
-The tablet web shell now also has a secondary monthly calendar view. Swiping right from the primary dashboard opens a vertically scrollable month table; swiping left returns to the primary dashboard. The table shows one row per day and one column per configured iCal calendar, with previous/next-month controls. Month data comes from `data/calendar_month.py`, which is deliberately separate from the compact `data/calendar.py` path used by the main dashboard. See `TABLET_MONTH_CALENDAR.md`.
+The tablet web shell now has three horizontal views. The family dashboard stays in the middle. Swiping **right** from it opens Raspberry Pi system health, and swiping **left** on system health returns to the dashboard. Swiping **left** from the dashboard opens the vertically scrollable monthly calendar, and swiping **right** on the calendar returns to the dashboard. The month table shows one row per day and one column per configured iCal calendar, with previous/next-month controls. Month data comes from `data/calendar_month.py`, which is deliberately separate from the compact `data/calendar.py` path used by the main dashboard. See `TABLET_MONTH_CALENDAR.md` and `SYSTEM_HEALTH.md`.
 
 The preferred MVP server launcher is `dashboard_supervisor.py`. It runs `web_dashboard.py`, checks `origin/family-dashboard-v1` every 60 seconds, performs only safe fast-forward pulls when a newer commit is available, and restarts the web dashboard so repository changes take effect automatically. Tracked local edits block an automatic update rather than being overwritten. `config.yaml` and credentials remain local/gitignored. This allows future dashboard changes committed through GitHub (including changes requested from a phone) to propagate to the home server without manually running `git pull`. See `AUTO_UPDATE.md` for details.
 
@@ -105,7 +105,7 @@ Today's events remain visible for the whole day, even after their end time. Cale
 
 The tablet web shell also has a separate full-month calendar. It fetches every occurrence for the selected month from all configured `calendars:` sources and presents them as calendar columns with day rows. The month view is intentionally allowed to scroll vertically and is not part of the e-paper renderer.
 
-A read-only Raspberry Pi health monitor is also available. `system_health.py` collects CPU temperature, throttling flags, one-minute load, RAM, disk, uptime, `family-dashboard.service`, the local web health endpoint and internet connectivity. It writes `cache/health/health.json` and a compact rolling `cache/health/history.json`. `web_dashboard.py` exposes `/system`, with current status plus 24-hour temperature/RAM/disk charts. While `/system` is open it refreshes every five minutes; an always-on systemd health timer has deliberately not been added yet. See `SYSTEM_HEALTH.md`.
+A read-only Raspberry Pi health monitor is also available. `system_health.py` collects CPU temperature, throttling flags, one-minute load, RAM, disk, uptime, `family-dashboard.service`, the local web health endpoint and internet connectivity. It writes `cache/health/health.json` and a compact rolling `cache/health/history.json`. `web_dashboard.py` exposes `/system`, with current status plus 24-hour temperature/RAM/disk charts, and also embeds that page as the right-swipe secondary view next to the family dashboard. While system health is open it refreshes every five minutes; an always-on systemd health timer has deliberately not been added yet. See `SYSTEM_HEALTH.md`.
 
 The Android/tablet primary dashboard refreshes the rendered image every 30 seconds. HSL cached departures are aged on every render, with the HSL cache capped at one minute for the web MVP, while the generic calendar/weather-style cache is capped at five minutes. The monthly calendar uses the same generic web cache cap and refreshes while open. The server session starts with a forced fresh primary-dashboard data fetch.
 

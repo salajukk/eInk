@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only health snapshot for the Family Display Raspberry Pi.
+"""Read-only health monitoring for the Family Display Raspberry Pi.
 
-Phase 1 intentionally does not restart services or send notifications. It only
-collects local system metrics, evaluates simple thresholds, prints a human-
-readable summary and stores the latest structured snapshot under cache/health/.
+The monitor never restarts services or changes system configuration. It collects
+local system metrics, evaluates simple thresholds, stores the latest snapshot and
+keeps a small rolling history under cache/health/ for the tablet system page.
 """
 
 from __future__ import annotations
@@ -14,11 +14,12 @@ import os
 import platform
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib import error, request
 
 OUTPUT_PATH = Path("cache/health/health.json")
+HISTORY_PATH = Path("cache/health/history.json")
 DASHBOARD_SERVICE = "family-dashboard.service"
 LOCAL_HEALTH_URL = "http://127.0.0.1:8080/health"
 INTERNET_CHECK_URL = "https://connectivitycheck.gstatic.com/generate_204"
@@ -29,6 +30,9 @@ DISK_WARNING_PERCENT = 80.0  # less than 20% free
 DISK_CRITICAL_PERCENT = 95.0
 MEMORY_WARNING_PERCENT = 90.0
 MEMORY_CRITICAL_PERCENT = 97.0
+
+HISTORY_HOURS = 24
+HISTORY_MIN_INTERVAL_SECONDS = 5 * 60
 
 
 def _run(command: list[str], timeout: float = 3.0) -> tuple[int | None, str]:
@@ -239,11 +243,113 @@ def collect_snapshot() -> dict:
     return snapshot
 
 
-def write_snapshot(snapshot: dict, path: Path = OUTPUT_PATH) -> None:
+def _atomic_json_write(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + ".tmp")
-    temp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(path)
+
+
+def write_snapshot(snapshot: dict, path: Path = OUTPUT_PATH) -> None:
+    _atomic_json_write(path, snapshot)
+
+
+def load_snapshot(path: Path = OUTPUT_PATH) -> dict | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return parsed
+
+
+def _history_point(snapshot: dict) -> dict:
+    """Keep only compact chart/status fields; no issue text is duplicated."""
+    return {
+        "checked_at": snapshot.get("checked_at"),
+        "status": snapshot.get("status"),
+        "temperature_c": snapshot.get("temperature_c"),
+        "cpu_load_1m": snapshot.get("cpu_load_1m"),
+        "memory_percent": snapshot.get("memory_percent"),
+        "disk_percent": snapshot.get("disk_percent"),
+    }
+
+
+def load_history(path: Path = HISTORY_PATH) -> list[dict]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+    points = value.get("points") if isinstance(value, dict) else value
+    if not isinstance(points, list):
+        return []
+    return [point for point in points if isinstance(point, dict)]
+
+
+def record_history(
+    snapshot: dict,
+    path: Path = HISTORY_PATH,
+    *,
+    now: datetime | None = None,
+    retention_hours: int = HISTORY_HOURS,
+    min_interval_seconds: int = HISTORY_MIN_INTERVAL_SECONDS,
+) -> list[dict]:
+    """Append/replace a compact point and retain only the rolling time window.
+
+    Repeated web refreshes inside five minutes replace the newest point rather
+    than growing the file. A later systemd timer can call the same script every
+    five minutes without changing this data format.
+    """
+    checked_at = _parse_datetime(str(snapshot.get("checked_at") or ""))
+    reference = now or checked_at or datetime.now().astimezone()
+    if reference.tzinfo is None:
+        reference = reference.astimezone()
+    if checked_at is None:
+        checked_at = reference
+        snapshot = {**snapshot, "checked_at": checked_at.isoformat(timespec="seconds")}
+
+    cutoff = reference - timedelta(hours=max(1, retention_hours))
+    points: list[dict] = []
+    for point in load_history(path):
+        point_time = _parse_datetime(str(point.get("checked_at") or ""))
+        if point_time is not None and point_time >= cutoff:
+            points.append(point)
+
+    points.sort(key=lambda point: str(point.get("checked_at") or ""))
+    new_point = _history_point(snapshot)
+
+    if points:
+        last_time = _parse_datetime(str(points[-1].get("checked_at") or ""))
+        if last_time is not None:
+            gap = (checked_at - last_time).total_seconds()
+            if gap < max(1, min_interval_seconds):
+                points[-1] = new_point
+            else:
+                points.append(new_point)
+        else:
+            points.append(new_point)
+    else:
+        points.append(new_point)
+
+    payload = {
+        "retention_hours": max(1, retention_hours),
+        "min_interval_seconds": max(1, min_interval_seconds),
+        "points": points,
+    }
+    _atomic_json_write(path, payload)
+    return points
 
 
 def _value(value, suffix: str = "") -> str:
@@ -288,6 +394,11 @@ def parse_args():
         default=str(OUTPUT_PATH),
         help=f"Snapshot path (default: {OUTPUT_PATH})",
     )
+    parser.add_argument(
+        "--history",
+        default=str(HISTORY_PATH),
+        help=f"History path (default: {HISTORY_PATH})",
+    )
     return parser.parse_args()
 
 
@@ -295,6 +406,7 @@ def main() -> None:
     args = parse_args()
     snapshot = collect_snapshot()
     write_snapshot(snapshot, Path(args.output))
+    record_history(snapshot, Path(args.history))
     if args.json:
         print(json.dumps(snapshot, ensure_ascii=False, indent=2))
     else:

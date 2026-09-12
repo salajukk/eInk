@@ -2,9 +2,8 @@
 """Serve the family dashboard as an auto-refreshing tablet web app.
 
 The primary view is still the existing 960x680 dashboard PNG used by the
-future e-paper output. The tablet web shell adds a separate interactive monthly
-calendar plus a read-only Raspberry Pi system-health page without changing the
-e-paper renderer.
+future e-paper output. The tablet shell adds two browser-only secondary views:
+a read-only Raspberry Pi health page and an interactive monthly calendar.
 """
 
 import argparse
@@ -16,7 +15,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-# main.py configures a file logger at import time, so ensure the directory exists.
 Path("cache").mkdir(exist_ok=True)
 
 from data.calendar_month import fetch_month  # noqa: E402
@@ -29,13 +27,7 @@ OUTPUT_PATH = Path("output/dashboard.png")
 
 
 def _web_mvp_config(config: dict) -> dict:
-    """Use shorter cache windows for the always-visible tablet MVP.
-
-    Existing config values are respected when they are already shorter. The
-    generic cache controls calendar/weather-like data, including the interactive
-    monthly calendar; HSL gets a much shorter window because departures become
-    obsolete quickly. This tuning is local to the tablet web output.
-    """
+    """Use shorter cache windows for the always-visible tablet output."""
     tuned = dict(config)
     cache_cfg = dict(config.get("cache") or {})
 
@@ -64,10 +56,6 @@ def render_once(config_path: str, use_cache: bool = True) -> Path:
         name: fetch_module(name, config, use_cache) if feature_enabled(config, name) else None
         for name in MODULES
     }
-
-    # A cached HSL response can still contain a departure that has passed since
-    # the API fetch. Age/filter those rows on every render so the tablet never
-    # shows an already-departed bus/train just because the cache is still valid.
     if data.get("hsl"):
         data["hsl"] = drop_past_departures(data["hsl"])
 
@@ -95,15 +83,13 @@ def _render_loop(stop_event, state, config_path, refresh_seconds, use_cache):
             state.last_success = time.time()
             state.last_error = None
         except Exception as exc:
-            # Keep serving the previous successful image if a refresh fails.
             state.last_error = str(exc)
             log.exception("Web MVP refresh failed")
 
 
 def _page(refresh_seconds: int) -> bytes:
-    # Poll at most once per minute so the browser picks up a newly rendered PNG.
-    browser_refresh = max(10, min(refresh_seconds, 60))
-    page = f"""<!doctype html>
+    browser_refresh_ms = max(10, min(refresh_seconds, 60)) * 1000
+    page = r'''<!doctype html>
 <html lang="fi">
 <head>
   <meta charset="utf-8">
@@ -111,8 +97,8 @@ def _page(refresh_seconds: int) -> bytes:
   <meta name="theme-color" content="#ffffff">
   <title>Perheen näyttö</title>
   <style>
-    * {{ box-sizing: border-box; }}
-    html, body {{
+    * { box-sizing: border-box; }
+    html, body {
       margin: 0;
       width: 100%;
       height: 100%;
@@ -120,40 +106,46 @@ def _page(refresh_seconds: int) -> bytes:
       background: #fff;
       color: #000;
       font-family: Arial, Helvetica, sans-serif;
-    }}
-    #track {{
+    }
+    #track {
       display: flex;
-      width: 200vw;
+      width: 300vw;
       height: 100vh;
       transform: translateX(-100vw);
       transition: transform 180ms ease-out;
-    }}
-    .page {{
+    }
+    .page {
       flex: 0 0 100vw;
       width: 100vw;
       height: 100vh;
       background: #fff;
-    }}
-    #month-page {{
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }}
-    #dashboard-page {{
+    }
+    #system-page, #dashboard-page, #month-page { overflow: hidden; }
+    #system-frame {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      background: #fff;
+    }
+    #dashboard-page {
       display: flex;
       align-items: center;
       justify-content: center;
-      overflow: hidden;
-    }}
-    #dashboard {{
+    }
+    #dashboard {
       width: 100vw;
       height: 100vh;
       object-fit: contain;
       display: block;
       user-select: none;
       -webkit-user-drag: none;
-    }}
-    .month-header {{
+    }
+    #month-page {
+      display: flex;
+      flex-direction: column;
+    }
+    .month-header {
       flex: 0 0 58px;
       display: grid;
       grid-template-columns: 56px 1fr 56px;
@@ -163,15 +155,15 @@ def _page(refresh_seconds: int) -> bytes:
       background: #fff;
       position: relative;
       z-index: 3;
-    }}
-    .month-header h1 {{
+    }
+    .month-header h1 {
       margin: 0;
       text-align: center;
       font-size: 24px;
       line-height: 1;
-      letter-spacing: 0.02em;
-    }}
-    .month-nav {{
+      letter-spacing: .02em;
+    }
+    .month-nav {
       appearance: none;
       border: 0;
       background: transparent;
@@ -181,36 +173,31 @@ def _page(refresh_seconds: int) -> bytes:
       height: 52px;
       padding: 0;
       cursor: pointer;
-    }}
-    #month-scroll {{
+    }
+    #month-scroll {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
       -webkit-overflow-scrolling: touch;
       touch-action: pan-y;
       background: #fff;
-    }}
-    #month-status {{
-      padding: 16px;
-      font-size: 16px;
-    }}
-    #month-table {{
+    }
+    #month-status { padding: 16px; font-size: 16px; }
+    #month-table {
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
       background: #fff;
-    }}
-    #month-table th,
-    #month-table td {{
+    }
+    #month-table th, #month-table td {
       border-right: 1px solid #777;
       border-bottom: 1px solid #aaa;
       vertical-align: top;
       padding: 6px 7px;
       overflow-wrap: anywhere;
-    }}
-    #month-table th:last-child,
-    #month-table td:last-child {{ border-right: 0; }}
-    #month-table thead th {{
+    }
+    #month-table th:last-child, #month-table td:last-child { border-right: 0; }
+    #month-table thead th {
       position: sticky;
       top: 0;
       z-index: 2;
@@ -219,34 +206,28 @@ def _page(refresh_seconds: int) -> bytes:
       font-size: 14px;
       text-align: left;
       min-height: 36px;
-    }}
-    #month-table .day-column {{
-      width: 86px;
-    }}
-    #month-table tbody th {{
+    }
+    #month-table .day-column { width: 86px; }
+    #month-table tbody th {
       font-size: 14px;
       text-align: left;
       background: #fff;
       font-weight: 700;
-    }}
+    }
     #month-table tbody tr.today th,
-    #month-table tbody tr.today td {{
+    #month-table tbody tr.today td {
       border-top: 2px solid #000;
       border-bottom: 2px solid #000;
-    }}
-    .event {{
-      margin: 0 0 5px;
-      font-size: 13px;
-      line-height: 1.22;
-    }}
-    .event:last-child {{ margin-bottom: 0; }}
-    .event-time {{ font-weight: 700; }}
-    .swipe-hint {{
+    }
+    .event { margin: 0 0 5px; font-size: 13px; line-height: 1.22; }
+    .event:last-child { margin-bottom: 0; }
+    .event-time { font-weight: 700; }
+    .swipe-hint {
       position: fixed;
       left: 50%;
       bottom: max(8px, env(safe-area-inset-bottom));
       transform: translateX(-50%);
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(255,255,255,.88);
       border: 1px solid #aaa;
       border-radius: 14px;
       padding: 4px 10px;
@@ -256,21 +237,28 @@ def _page(refresh_seconds: int) -> bytes:
       opacity: 0;
       transition: opacity 180ms ease-out;
       z-index: 5;
-    }}
-    #track.month-visible ~ #month-hint {{ opacity: 1; }}
-    @media (max-width: 800px) {{
-      .month-header h1 {{ font-size: 20px; }}
-      #month-table .day-column {{ width: 72px; }}
-      #month-table th,
-      #month-table td {{ padding: 5px; }}
-      #month-table thead th,
-      #month-table tbody th {{ font-size: 12px; }}
-      .event {{ font-size: 12px; }}
-    }}
+    }
+    #track.month-visible ~ #month-hint { opacity: 1; }
+    #track.system-visible ~ #system-hint { opacity: 1; }
+    @media (max-width: 800px) {
+      .month-header h1 { font-size: 20px; }
+      #month-table .day-column { width: 72px; }
+      #month-table th, #month-table td { padding: 5px; }
+      #month-table thead th, #month-table tbody th { font-size: 12px; }
+      .event { font-size: 12px; }
+    }
   </style>
 </head>
 <body>
   <div id="track">
+    <section id="system-page" class="page" aria-label="Raspberry Pi Health">
+      <iframe id="system-frame" src="/system" title="Raspberry Pi Health"></iframe>
+    </section>
+
+    <section id="dashboard-page" class="page" aria-label="Perheen näyttö">
+      <img id="dashboard" src="/dashboard.png?v=0" alt="Perheen näyttö">
+    </section>
+
     <section id="month-page" class="page" aria-label="Kuukausikalenteri">
       <header class="month-header">
         <button id="prev-month" class="month-nav" type="button" aria-label="Edellinen kuukausi">‹</button>
@@ -279,17 +267,12 @@ def _page(refresh_seconds: int) -> bytes:
       </header>
       <div id="month-scroll">
         <div id="month-status">Ladataan kalenteria…</div>
-        <table id="month-table" hidden>
-          <thead></thead>
-          <tbody></tbody>
-        </table>
+        <table id="month-table" hidden><thead></thead><tbody></tbody></table>
       </div>
     </section>
-    <section id="dashboard-page" class="page" aria-label="Perheen näyttö">
-      <img id="dashboard" src="/dashboard.png?v=0" alt="Perheen näyttö">
-    </section>
   </div>
-  <div id="month-hint" class="swipe-hint">Pyyhkäise vasemmalle takaisin</div>
+  <div id="system-hint" class="swipe-hint">Pyyhkäise vasemmalle takaisin</div>
+  <div id="month-hint" class="swipe-hint">Pyyhkäise oikealle takaisin</div>
 
   <script>
     const image = document.getElementById("dashboard");
@@ -314,40 +297,40 @@ def _page(refresh_seconds: int) -> bytes:
     let touchStartX = null;
     let touchStartY = null;
 
-    function showView(view) {{
+    function showView(view) {
       activeView = view;
-      if (view === "month") {{
+      track.classList.remove("system-visible", "month-visible");
+      if (view === "system") {
         track.style.transform = "translateX(0)";
+        track.classList.add("system-visible");
+      } else if (view === "month") {
+        track.style.transform = "translateX(-200vw)";
         track.classList.add("month-visible");
         loadMonth();
-      }} else {{
+      } else {
         track.style.transform = "translateX(-100vw)";
-        track.classList.remove("month-visible");
-      }}
-    }}
+      }
+    }
 
-    function isoDate(year, month, day) {{
-      return `${{year}}-${{String(month).padStart(2, "0")}}-${{String(day).padStart(2, "0")}}`;
-    }}
+    function isoDate(year, month, day) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+    function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); }
 
-    function daysInMonth(year, month) {{
-      return new Date(year, month, 0).getDate();
-    }}
-
-    function eventText(event) {{
+    function eventText(event) {
       if (event.all_day || !event.time) return event.title || "(ei otsikkoa)";
       let timing = event.time;
-      if (event.end_time && event.end_time.length >= 16) {{
+      if (event.end_time && event.end_time.length >= 16) {
         const end = event.end_time.slice(11, 16);
-        if (end && end !== event.time) timing += `–${{end}}`;
-      }}
-      return `${{timing}} ${{event.title || "(ei otsikkoa)"}}`;
-    }}
+        if (end && end !== event.time) timing += `–${end}`;
+      }
+      return `${timing} ${event.title || "(ei otsikkoa)"}`;
+    }
 
-    function renderMonth(data) {{
+    function renderMonth(data) {
       const names = Array.isArray(data.calendar_names) ? data.calendar_names : [];
       const events = Array.isArray(data.events) ? data.events : [];
-      monthTitle.textContent = `${{MONTHS_FI[shownMonth - 1]}} ${{shownYear}}`;
+      monthTitle.textContent = `${MONTHS_FI[shownMonth - 1]} ${shownYear}`;
       monthHead.replaceChildren();
       monthBody.replaceChildren();
 
@@ -356,136 +339,145 @@ def _page(refresh_seconds: int) -> bytes:
       dayHeader.className = "day-column";
       dayHeader.textContent = "Päivä";
       headerRow.appendChild(dayHeader);
-      names.forEach((name) => {{
+      names.forEach((name) => {
         const th = document.createElement("th");
         th.textContent = name;
         headerRow.appendChild(th);
-      }});
+      });
       monthHead.appendChild(headerRow);
 
       const grouped = new Map();
-      events.forEach((event) => {{
-        const key = `${{event.date}}\n${{event.calendar || ""}}`;
+      events.forEach((event) => {
+        const key = `${event.date}\n${event.calendar || ""}`;
         if (!grouped.has(key)) grouped.set(key, []);
         grouped.get(key).push(event);
-      }});
+      });
 
       const todayIso = isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
       const count = daysInMonth(shownYear, shownMonth);
-      for (let day = 1; day <= count; day += 1) {{
+      for (let day = 1; day <= count; day += 1) {
         const row = document.createElement("tr");
         const dateIso = isoDate(shownYear, shownMonth, day);
         if (dateIso === todayIso) row.classList.add("today");
 
         const dayCell = document.createElement("th");
         const weekday = DAYS_FI[new Date(shownYear, shownMonth - 1, day).getDay()];
-        dayCell.textContent = `${{weekday}} ${{day}}.${{shownMonth}}.`;
+        dayCell.textContent = `${weekday} ${day}.${shownMonth}.`;
         row.appendChild(dayCell);
 
-        names.forEach((name) => {{
+        names.forEach((name) => {
           const cell = document.createElement("td");
-          const dayEvents = grouped.get(`${{dateIso}}\n${{name}}`) || [];
-          dayEvents.forEach((event) => {{
+          const dayEvents = grouped.get(`${dateIso}\n${name}`) || [];
+          dayEvents.forEach((event) => {
             const div = document.createElement("div");
             div.className = "event";
             const text = eventText(event);
-            if (!event.all_day && event.time) {{
+            if (!event.all_day && event.time) {
               const firstSpace = text.indexOf(" ");
-              if (firstSpace > 0) {{
+              if (firstSpace > 0) {
                 const timeSpan = document.createElement("span");
                 timeSpan.className = "event-time";
                 timeSpan.textContent = text.slice(0, firstSpace);
                 div.appendChild(timeSpan);
                 div.appendChild(document.createTextNode(text.slice(firstSpace)));
-              }} else {{
+              } else {
                 div.textContent = text;
-              }}
-            }} else {{
+              }
+            } else {
               div.textContent = text;
-            }}
+            }
             cell.appendChild(div);
-          }});
+          });
           row.appendChild(cell);
-        }});
+        });
         monthBody.appendChild(row);
-      }}
+      }
 
       monthStatus.hidden = true;
       monthTable.hidden = false;
-      loadedKey = `${{shownYear}}-${{shownMonth}}`;
-      if (data._stale) {{
+      loadedKey = `${shownYear}-${shownMonth}`;
+      if (data._stale) {
         monthStatus.textContent = "Kalenteriyhteys ei vastannut – näytetään viimeksi ladattu kuukausi.";
         monthStatus.hidden = false;
-      }}
-    }}
+      }
+    }
 
-    async function loadMonth(force = false) {{
-      const key = `${{shownYear}}-${{shownMonth}}`;
+    async function loadMonth(force = false) {
+      const key = `${shownYear}-${shownMonth}`;
       if (!force && loadedKey === key) return;
-      monthTitle.textContent = `${{MONTHS_FI[shownMonth - 1]}} ${{shownYear}}`;
+      monthTitle.textContent = `${MONTHS_FI[shownMonth - 1]} ${shownYear}`;
       monthStatus.hidden = false;
       monthStatus.textContent = "Ladataan kalenteria…";
       monthTable.hidden = true;
-      try {{
+      try {
         const response = await fetch(
-          `/calendar-month.json?year=${{shownYear}}&month=${{shownMonth}}&v=${{Date.now()}}`,
-          {{ cache: "no-store" }}
+          `/calendar-month.json?year=${shownYear}&month=${shownMonth}&v=${Date.now()}`,
+          {cache: "no-store"}
         );
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || `HTTP ${{response.status}}`);
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
         renderMonth(data);
-      }} catch (error) {{
+      } catch (error) {
         monthStatus.hidden = false;
         monthStatus.textContent = "Kuukausikalenteria ei saatu ladattua.";
         monthTable.hidden = true;
         console.error(error);
-      }}
-    }}
+      }
+    }
 
-    function shiftMonth(delta) {{
+    function shiftMonth(delta) {
       shownMonth += delta;
-      if (shownMonth < 1) {{ shownMonth = 12; shownYear -= 1; }}
-      if (shownMonth > 12) {{ shownMonth = 1; shownYear += 1; }}
+      if (shownMonth < 1) { shownMonth = 12; shownYear -= 1; }
+      if (shownMonth > 12) { shownMonth = 1; shownYear += 1; }
       loadedKey = "";
       monthScroll.scrollTop = 0;
       loadMonth(true);
-    }}
+    }
 
     document.getElementById("prev-month").addEventListener("click", () => shiftMonth(-1));
     document.getElementById("next-month").addEventListener("click", () => shiftMonth(1));
 
-    document.addEventListener("touchstart", (event) => {{
+    document.addEventListener("touchstart", (event) => {
       if (event.touches.length !== 1) return;
       touchStartX = event.touches[0].clientX;
       touchStartY = event.touches[0].clientY;
-    }}, {{ passive: true }});
+    }, {passive: true});
 
-    document.addEventListener("touchend", (event) => {{
+    document.addEventListener("touchend", (event) => {
       if (touchStartX === null || touchStartY === null || !event.changedTouches.length) return;
       const dx = event.changedTouches[0].clientX - touchStartX;
       const dy = event.changedTouches[0].clientY - touchStartY;
       touchStartX = null;
       touchStartY = null;
       if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
-      if (activeView === "dashboard" && dx > 0) showView("month");
-      else if (activeView === "month" && dx < 0) showView("dashboard");
-    }}, {{ passive: true }});
 
-    setInterval(() => {{
+      if (activeView === "dashboard" && dx > 0) showView("system");
+      else if (activeView === "dashboard" && dx < 0) showView("month");
+      else if (activeView === "month" && dx > 0) showView("dashboard");
+    }, {passive: true});
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data && event.data.type === "family-display-system-swipe-left") {
+        showView("dashboard");
+      }
+    });
+
+    setInterval(() => {
       image.src = "/dashboard.png?v=" + Date.now();
-    }}, {browser_refresh * 1000});
+    }, __BROWSER_REFRESH_MS__);
 
-    setInterval(() => {{
-      if (activeView === "month") {{
+    setInterval(() => {
+      if (activeView === "month") {
         loadedKey = "";
         loadMonth(true);
-      }}
-    }}, 5 * 60 * 1000);
+      }
+    }, 5 * 60 * 1000);
   </script>
 </body>
 </html>
-"""
-    return page.encode("utf-8")
+'''
+    return page.replace("__BROWSER_REFRESH_MS__", str(browser_refresh_ms)).encode("utf-8")
 
 
 def make_handler(state, refresh_seconds, config_path, use_cache):
@@ -583,8 +575,7 @@ def make_handler(state, refresh_seconds, config_path, use_cache):
             if path == "/health":
                 last_success = (
                     time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(state.last_success))
-                    if state.last_success
-                    else ""
+                    if state.last_success else ""
                 )
                 body = (
                     f"ok={OUTPUT_PATH.exists()}\n"
@@ -619,20 +610,14 @@ def parse_args():
     parser.add_argument("--host", default="0.0.0.0", help="Listen address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8080, help="HTTP port (default: 8080)")
     parser.add_argument(
-        "--refresh-seconds",
-        type=int,
-        default=30,
+        "--refresh-seconds", type=int, default=30,
         help="How often to re-render the dashboard (default: 30)",
     )
     parser.add_argument(
-        "--config",
-        default="config.yaml",
-        help="Configuration file (default: config.yaml)",
+        "--config", default="config.yaml", help="Configuration file (default: config.yaml)"
     )
     parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Force data refresh on every render",
+        "--no-cache", action="store_true", help="Force data refresh on every render"
     )
     return parser.parse_args()
 
@@ -643,10 +628,7 @@ def main():
         raise SystemExit("--refresh-seconds must be at least 10")
 
     state = DashboardState()
-
     try:
-        # Always start the tablet session with fresh data so recent calendar
-        # edits are visible immediately after restarting the server.
         render_once(args.config, use_cache=False)
         state.last_success = time.time()
     except Exception as exc:
@@ -668,11 +650,6 @@ def main():
         make_handler(state, args.refresh_seconds, args.config, use_cache),
     )
     log.info("Web MVP server listening on http://%s:%s", args.host, args.port)
-    log.info(
-        "Open it from the Android tablet using this computer's LAN IP, "
-        "for example http://192.168.1.10:%s",
-        args.port,
-    )
 
     try:
         server.serve_forever()

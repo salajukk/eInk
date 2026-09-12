@@ -3,7 +3,8 @@
 
 The primary view is still the existing 960x680 dashboard PNG used by the
 future e-paper output. The tablet web shell adds a separate interactive monthly
-calendar view without changing the e-paper renderer.
+calendar plus a read-only Raspberry Pi system-health page without changing the
+e-paper renderer.
 """
 
 import argparse
@@ -21,6 +22,7 @@ Path("cache").mkdir(exist_ok=True)
 from data.calendar_month import fetch_month  # noqa: E402
 from data.hsl import drop_past_departures  # noqa: E402
 from main import MODULES, _render_dashboard, feature_enabled, fetch_module, load_config  # noqa: E402
+from system_health_page import collect_system_payload, system_page  # noqa: E402
 
 log = logging.getLogger("dashboard.web")
 OUTPUT_PATH = Path("output/dashboard.png")
@@ -514,6 +516,24 @@ def make_handler(state, refresh_seconds, config_path, use_cache):
                 self._no_cache_headers()
                 self.end_headers()
                 self.wfile.write(body)
+                return
+
+            if path == "/system":
+                body = system_page()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self._no_cache_headers()
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path == "/system-health.json":
+                try:
+                    self._send_json(200, collect_system_payload())
+                except Exception as exc:
+                    log.exception("System health collection failed")
+                    self._send_json(503, {"error": str(exc)})
                 return
 
             if path == "/calendar-month.json":

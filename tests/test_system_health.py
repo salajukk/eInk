@@ -1,10 +1,12 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import system_health
+import system_health_page
 
 
 class SystemHealthTests(unittest.TestCase):
@@ -20,6 +22,17 @@ class SystemHealthTests(unittest.TestCase):
             "dashboard_service": "active",
             "web_dashboard": "ok",
             "internet": "ok",
+        }
+
+    def _history_snapshot(self, when: datetime, temperature: float = 48.3):
+        return {
+            "checked_at": when.isoformat(timespec="seconds"),
+            "status": "ok",
+            "temperature_c": temperature,
+            "cpu_load_1m": 0.03,
+            "memory_percent": 12.4,
+            "disk_percent": 8.0,
+            "issues": [{"severity": "warning", "message": "not duplicated in history"}],
         }
 
     def test_memory_parser_uses_mem_available(self):
@@ -85,6 +98,46 @@ class SystemHealthTests(unittest.TestCase):
             system_health.write_snapshot(snapshot, path)
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), snapshot)
             self.assertFalse(path.with_name(path.name + ".tmp").exists())
+
+    def test_history_drops_points_older_than_24_hours(self):
+        now = datetime(2026, 9, 12, 8, 0, tzinfo=timezone.utc)
+        old = self._history_snapshot(now - timedelta(hours=25), 44.0)
+        recent = self._history_snapshot(now - timedelta(hours=1), 46.0)
+        current = self._history_snapshot(now, 48.0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "history.json"
+            path.write_text(
+                json.dumps({"points": [old, recent]}),
+                encoding="utf-8",
+            )
+            points = system_health.record_history(current, path, now=now)
+            stored = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual([point["temperature_c"] for point in points], [46.0, 48.0])
+        self.assertEqual(len(stored["points"]), 2)
+        self.assertEqual(stored["retention_hours"], 24)
+        self.assertNotIn("issues", stored["points"][-1])
+
+    def test_history_replaces_newest_point_inside_five_minutes(self):
+        now = datetime(2026, 9, 12, 8, 0, tzinfo=timezone.utc)
+        previous = self._history_snapshot(now - timedelta(seconds=60), 45.0)
+        current = self._history_snapshot(now, 49.0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "history.json"
+            path.write_text(json.dumps({"points": [previous]}), encoding="utf-8")
+            points = system_health.record_history(current, path, now=now)
+
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0]["temperature_c"], 49.0)
+
+    def test_system_page_has_no_external_dependencies(self):
+        html = system_health_page.system_page().decode("utf-8")
+        self.assertIn("Raspberry Pi Health", html)
+        self.assertIn("/system-health.json", html)
+        self.assertNotIn("<script src=", html)
+        self.assertNotIn("<link rel=", html)
 
 
 if __name__ == "__main__":

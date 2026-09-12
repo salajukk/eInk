@@ -54,24 +54,29 @@ venv/bin/python system_health.py --json
 
 ## /system page
 
-The tablet web server exposes a separate diagnostic page:
+The tablet web server exposes the diagnostic page directly at:
 
 ```text
 http://<raspberry-ip>:8080/system
 ```
+
+The same health page is also part of the normal tablet swipe shell. From the
+family dashboard, swipe **right** to open system health; swipe **left** on the
+system-health page to return to the family dashboard. The monthly calendar is on
+the other side of the family dashboard: swipe left from the dashboard to the
+calendar and right from the calendar to return.
 
 The page shows the latest values for temperature, CPU load, RAM, disk, uptime,
 throttling, the dashboard service, the local web dashboard and internet connectivity.
 It also draws small 24-hour charts for temperature, RAM and disk usage using only
 browser-native HTML/JavaScript; no external chart library is required.
 
-Opening `/system` triggers a fresh read-only health check. While the page stays open,
-it refreshes every five minutes. Checks inside the same five-minute interval replace
-the newest history point instead of growing the history file unnecessarily.
+Opening the system-health view triggers a fresh read-only health check. While the
+page stays open, it refreshes every five minutes. Checks inside the same five-minute
+interval replace the newest history point instead of growing the history file unnecessarily.
 
-The page links back to the normal family dashboard. It is intentionally separate
-from the swipeable primary/month-calendar UI because system diagnostics are an
-occasional maintenance view rather than daily family content.
+The `← Perheen näyttö` link remains available as a fallback and opens the main page
+at the top browser level even when the health page is embedded in the swipe shell.
 
 ## History behaviour
 
@@ -92,7 +97,7 @@ sampling interval is five minutes, so a full day will later contain at most roug
 At this stage history grows when either:
 
 1. `system_health.py` is run manually, or
-2. `/system` is open and performs its five-minute refresh.
+2. the system-health page is open and performs its five-minute refresh.
 
 There is deliberately **no always-on health timer yet**. That is the next phase.
 
@@ -138,16 +143,16 @@ The latest JSON snapshot includes an `issues` list with stable issue codes so th
 Run:
 
 ```bash
-venv/bin/python -m unittest tests.test_system_health -v
+venv/bin/python -m unittest tests.test_system_health tests.test_swipe_navigation -v
 ```
 
-The unit tests mock service/network/system collectors and do not require Raspberry Pi hardware. They also cover 24-hour retention, five-minute history coalescing and the standalone system page.
+The tests mock service/network/system collectors and do not require Raspberry Pi hardware. They cover 24-hour retention, five-minute history coalescing, the system page and the tablet swipe wiring.
 
 ## Next phase
 
 The next controlled step is to add a small systemd timer that runs the existing
-`system_health.py` every five minutes even when `/system` is closed. No new data
-format is required.
+`system_health.py` every five minutes even when the system-health page is closed.
+No new data format is required.
 
 After that has run reliably, push notifications can be added with state-change
 suppression: one alert when an issue starts and one recovery notification when it

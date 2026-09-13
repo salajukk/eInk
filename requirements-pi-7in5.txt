@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Raspberry Pi hardware support for the original Waveshare 7.5inch V2 setup.
+betterepd7in5==0.2.1

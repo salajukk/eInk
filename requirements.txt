@@ -4,4 +4,3 @@ requests
 icalendar
 recurring-ical-events
 pycaruna
-betterepd7in5==0.2.1

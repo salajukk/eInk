@@ -149,7 +149,7 @@ def _draw_now_band(draw: ImageDraw.Draw, weather: dict | None, hsl: dict | None,
 def _school_reminder_text(item: dict) -> str:
     """Compact one-line representation for the school-reminder strip."""
     day = _date_str(str(item.get("date") or ""), weekday=True).capitalize()
-    student = str(item.get("student") or "").strip()
+    student = str(item.get("student") or "").strip().split(" ")[0]
     title = str(item.get("title") or "").strip()
     remember = [str(value).strip() for value in item.get("remember") or [] if str(value).strip()]
 
@@ -168,16 +168,30 @@ def _draw_school_reminders(draw: ImageDraw.Draw, data: dict | None,
                            x: int, y: int, w: int, h: int):
     """Show at most two nearest standalone Wilma-message reminders."""
     stale = bool(data and data.get("_stale"))
-    _section_label(draw, x, y, "KOULUSTA MUISTETTAVAA", stale=stale)
+    label = "KOULUSTA MUISTETTAVAA"
+    try:
+        label += " " + datetime.fromisoformat((data or {}).get("fetched_at", "")).strftime("%d.%m. %H:%M")
+    except (ValueError, TypeError):
+        pass
+    _section_label(draw, x, y, label, stale=stale)
     items = list((data or {}).get("standalone") or [])
     items.sort(
         key=lambda item: (
+            bool(item.get("date_unknown")),
             str(item.get("date") or ""),
             str(item.get("student") or ""),
             str(item.get("title") or ""),
         )
     )
-    items = items[:2]
+    # Give both children a row before filling remaining space with another item.
+    selected, students = [], set()
+    for item in items:
+        student = item.get("student_id") or item.get("student")
+        if student not in students:
+            selected.append(item)
+            students.add(student)
+    selected.extend(item for item in items if item not in selected)
+    items = selected[:2]
 
     cy = y + 29
     max_width = w - 2 * PAD

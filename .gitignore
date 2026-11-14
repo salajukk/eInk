@@ -20,3 +20,6 @@ venv/
 # macOS
 .DS_Store
 .claude/
+
+# Local configuration backups contain credentials
+config.yaml.*

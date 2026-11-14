@@ -264,3 +264,121 @@ partial_updates:
 Available cells are defined in `render.py` as `PARTIAL_CELLS`. Each entry is `{region, data_key, filter}` where `filter` is an optional `module:function` that mutates the cell's data before render — the HSL cell uses `data.hsl:drop_past_departures` to remove connections where the recomputed `minutes_until ≤ 0`. New partial-eligible cells need an `x`-aligned region (multiples of 8) and an entry in the registry.
 
 If `partial_updates` is missing or empty, `--partial-only` is a no-op.
+
+## Wilma AI summaries
+
+The optional cloud analyzer extracts concise Finnish school reminders per child
+from message subjects and bodies. Child and message IDs are attached locally.
+Credentials and sender metadata are not sent to the AI service. Existing display
+integration renders the reminders under `Koulusta muistettavaa`.
+
+Configure in the gitignored `config.yaml`:
+
+```yaml
+wilma_ai:
+  enabled: true
+  model: "YOUR_RESPONSES_STRUCTURED_OUTPUTS_MODEL"
+  api_key: "YOUR_OPENAI_API_KEY"
+```
+
+Alternatively supply `OPENAI_API_KEY` to the dashboard service environment.
+Use a separately billed API key; do not commit it or paste it into chat.
+Model output uses the Responses API strict JSON schema and `store: false`:
+https://developers.openai.com/api/docs/guides/structured-outputs
+This setting does not itself promise zero provider retention.
+
+Unchanged messages reuse local analysis; changing the model invalidates their
+analysis hash after the normal cache TTL (30 minutes by default). Request failures,
+refusals, incomplete responses and malformed data preserve the existing stale
+cache instead of overwriting it. No message bodies or API responses are logged.
+Messages above 60,000 characters fail explicitly rather than being truncated.
+
+Each reminder includes a verbatim evidence excerpt and original message ID.
+Dates resolve against the message send date. Undated actions appear as `Tarkista:`
+review tasks and remain visible until resolved in the source message or local
+state; do not treat their displayed review date as an event date. AI interpretation
+can still be wrong; consult the original Wilma message for confirmation.
+
+With a key configured, validate from the project directory:
+
+```bash
+venv/bin/python wilma_reminders_check.py --no-cache
+venv/bin/python -m unittest tests.test_wilma_ai tests.test_wilma_reminders
+```
+
+### Nightly Codex mode (no API key)
+
+`wilma_nightly.py` fetches Wilma messages to private `cache/wilma_messages.json`,
+then invokes the installed Codex CLI with saved ChatGPT login, read-only sandbox,
+ephemeral session and a strict output schema. Changed messages are analyzed in
+bounded batches. The job retains older future reminders. Only validated output
+is atomically published as `cache/wilma_codex_summary.json`; failed runs retain
+the last successful summary. State is in `cache/wilma_codex_state.json`.
+The current snapshot and state contain family data and stay gitignored with
+owner-only permissions. Codex output is not written to the system log.
+
+Set `wilma_ai.provider: codex_file` and `features.school_reminders: true` locally.
+In this mode the display only reads the summary file, never contacts Wilma or AI.
+The header shows last successful update time and marks data stale after 36 hours.
+Undated review tasks remain until the message changes or local state is resolved.
+
+Installed schedule: daily at 12:00, 13:00, 14:00 and 15:00, host timezone Europe/Helsinki, using the
+salamapi user's crontab. Run manually with:
+
+```bash
+cd /home/salamapi/eInk
+venv/bin/python wilma_nightly.py
+```
+
+Check `cache/wilma_nightly.log` if the update time stops advancing. Renew Codex
+ChatGPT login if required. Normal Codex plan usage limits apply. No API key is
+needed. Disable by removing the marked cron block; the last summary stays visible.
+
+### All school reminders on the tablet
+
+Open `/school` or tap the dashboard's `Koulusta muistettavaa` area. You can also
+swipe left from the monthly calendar, then right to return. The school page shows
+all active reminders in Neve/Sera columns, with full text, dates and expandable
+source excerpts. Undated review tasks are grouped separately without an invented
+event date. On narrow screens columns stack and the page scrolls vertically.
+The header reports the last successful update and warns when it is delayed.
+`/school-reminders.json` reads only the locally saved summary; opening this page
+never polls Wilma or invokes Codex. The dashboard still shows one compact row per
+child. Reload an already-open tablet browser once after installation.
+
+### Homework, exams and lesson notes
+
+The school page groups records into `Läksyt ja kokeet`, `Merkinnät` and `Muut`,
+with separate child columns inside each group. Wilma is polled every day at
+12:00, 13:00, 14:00 and 15:00 in Europe/Helsinki; this replaces the 03:15 job.
+The existing `wilma_nightly.py` filename is retained for compatibility. Each run
+refreshes direct records and summarizes changed messages using Codex.
+
+Direct records are stored privately in `cache/wilma_schoolwork.json`. Homework
+from teaching group journals is shown for the last 14 days with its given date,
+without inventing deadlines or completion status. Exams include future dates
+and original scope descriptions. Notes include the last 28 days; duplicate
+identical cells on the same day are collapsed. Notes are read from the history
+view, not just unexplained absences. Raw records never go through the AI model.
+
+A failed direct fetch preserves the previous snapshot and marks its status as
+failed in `cache/wilma_schoolwork_status.json`. The page reports direct-fetch and
+message-summary times separately, since AI failure must not hide fresh homework.
+Install `beautifulsoup4` from requirements if not already available.
+
+### Two-day recommendations
+
+The first section of the school page contains exactly three short Finnish sentences
+for each child, generated by Codex from saved homework, exams, recent notes and
+message reminders. The visible period covers tomorrow and the following day.
+The advice prioritizes preparation for the nearest exams and conditional checking
+of homework, since completion and due dates are not known. Notes older than seven
+days are excluded from advice inputs. The original records remain below.
+
+Recommendations update after each successful scheduled refresh. A fingerprint
+includes the current date and source contents, so unchanged records are reused
+within a day and the two-day period is regenerated on a new day. A schema and
+validation require both children, exactly three sentences each, and source IDs
+belonging to the correct child. Results are atomically saved in
+`cache/wilma_recommendations.json`; failures retain old advice with a delayed-update
+warning and the original period. Generation uses the existing ChatGPT login.

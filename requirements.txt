@@ -4,3 +4,5 @@ requests
 icalendar
 recurring-ical-events
 pycaruna
+
+beautifulsoup4

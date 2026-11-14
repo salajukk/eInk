@@ -148,3 +148,9 @@ cache:
   wilma_messages_ttl_minutes: 30
   hsl_ttl_minutes: 10
   hsl_active_hours: [6, 22]
+
+# Cloud summarization; enable after configuring a billed OpenAI API key and model.
+wilma_ai:
+  enabled: false
+  model: ""  # A model supporting Responses API Structured Outputs
+  api_key: ""  # Local only; alternatively OPENAI_API_KEY in the service environment

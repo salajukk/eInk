@@ -5,9 +5,9 @@ from system_health_page import system_page
 
 
 class SwipeNavigationTests(unittest.TestCase):
-    def test_tablet_shell_contains_three_views_and_expected_swipes(self):
+    def test_tablet_shell_contains_four_views_and_expected_swipes(self):
         html = web_dashboard._page(30).decode("utf-8")
-        self.assertIn('width: 300vw', html)
+        self.assertIn('width: 400vw', html)
         self.assertIn('id="system-frame"', html)
         self.assertIn('activeView === "dashboard" && dx > 0', html)
         self.assertIn('showView("system")', html)

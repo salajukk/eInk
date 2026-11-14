@@ -47,6 +47,9 @@ def remove_expired(reminders: list[dict], today: date | None = None) -> list[dic
     today = today or date.today()
     active = []
     for reminder in reminders:
+        if reminder.get("date_unknown"):
+            active.append({**reminder, "date": today.isoformat()})
+            continue
         expiry = str(reminder.get("end_date") or reminder.get("date") or "")
         try:
             expiry_date = date.fromisoformat(expiry)
@@ -97,10 +100,10 @@ def reconcile_with_calendar(reminders: list[dict], calendar: dict | None) -> dic
     return {"standalone": standalone, "enrichments": enrichments}
 
 
-def _message_hash(message: dict) -> str:
+def _message_hash(message: dict, analyzer_key: str = ANALYZER_VERSION) -> str:
     """Hash analysis-relevant fields without persisting the raw body."""
     payload = "\n".join(
-        [ANALYZER_VERSION]
+        [analyzer_key]
         + [
             str(message.get(key) or "")
             for key in ("id", "sent_at", "subject", "body", "student", "student_id")
@@ -151,6 +154,12 @@ def _dedupe_reminders(reminders: list[dict]) -> list[dict]:
 def build(config: dict, reference_date: date | None = None) -> dict:
     """Fetch/analyze messages while reusing state for unchanged message bodies."""
     today = reference_date or date.today()
+    ai_cfg = config.get("wilma_ai") or {}
+    ai_enabled = ai_cfg.get("enabled", False)
+    analyzer_key = ANALYZER_VERSION
+    if ai_enabled:
+        from analysis.wilma_ai import VERSION, analyze
+        analyzer_key = VERSION + ":" + str(ai_cfg.get("model") or "")
     messages = fetch_messages(config)
     previous = _load_json(STATE_FILE) or {}
     previous_messages = previous.get("messages") or {}
@@ -167,14 +176,16 @@ def build(config: dict, reference_date: date | None = None) -> dict:
         if not message_id:
             continue
         fetched_ids.add(message_id)
-        digest = _message_hash(message)
+        digest = _message_hash(message, analyzer_key)
         old = previous_messages.get(message_id)
 
         if isinstance(old, dict) and old.get("hash") == digest:
             reminders = remove_expired(old.get("reminders") or [], today)
         else:
             analysis_date = reference_date or _message_reference_date(message, today)
-            reminders = remove_expired(analyze_message(message, analysis_date), today)
+            extracted = (analyze(message, analysis_date, ai_cfg) if ai_enabled
+                         else analyze_message(message, analysis_date))
+            reminders = remove_expired(extracted, today)
 
         state_messages[message_id] = {
             "hash": digest,
@@ -214,6 +225,17 @@ def build(config: dict, reference_date: date | None = None) -> dict:
 
 
 def fetch(config: dict, use_cache: bool = True) -> dict:
+    if (config.get("wilma_ai") or {}).get("provider") == "codex_file":
+        summary = _load_json(Path("cache/wilma_codex_summary.json"))
+        if not summary:
+            return {"items": [], "_stale": True}
+        summary["items"] = remove_expired(summary.get("items") or [])
+        try:
+            age = (datetime.now() - datetime.fromisoformat(summary["fetched_at"])).total_seconds()
+            summary["_stale"] = age > 36 * 3600
+        except (ValueError, KeyError, TypeError):
+            summary["_stale"] = True
+        return summary
     cache_cfg = config.get("cache") or {}
     try:
         ttl = int(cache_cfg.get("wilma_messages_ttl_minutes", 30))

@@ -2,8 +2,8 @@
 """Serve the family dashboard as an auto-refreshing tablet web app.
 
 The primary view is still the existing 960x680 dashboard PNG used by the
-future e-paper output. The tablet shell adds two browser-only secondary views:
-a read-only Raspberry Pi health page and an interactive monthly calendar.
+future e-paper output. The tablet shell adds browser-only views for Raspberry Pi health,
+a monthly calendar and full school reminders.
 """
 
 import argparse
@@ -20,6 +20,7 @@ Path("cache").mkdir(exist_ok=True)
 from data.calendar_month import fetch_month  # noqa: E402
 from data.hsl import drop_past_departures  # noqa: E402
 from main import MODULES, _render_dashboard, feature_enabled, fetch_module, load_config  # noqa: E402
+from school_summary_page import school_payload
 from system_health_page import collect_system_payload, system_page  # noqa: E402
 
 log = logging.getLogger("dashboard.web")
@@ -109,7 +110,7 @@ def _page(refresh_seconds: int) -> bytes:
     }
     #track {
       display: flex;
-      width: 300vw;
+      width: 400vw;
       height: 100vh;
       transform: translateX(-100vw);
       transition: transform 180ms ease-out;
@@ -129,13 +130,14 @@ def _page(refresh_seconds: int) -> bytes:
       background: #fff;
     }
     #dashboard-page {
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
     }
     #dashboard {
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
       display: block;
       user-select: none;
@@ -247,6 +249,34 @@ def _page(refresh_seconds: int) -> bytes:
       #month-table thead th, #month-table tbody th { font-size: 12px; }
       .event { font-size: 12px; }
     }
+    #school-page { display: flex; flex-direction: column; overflow: hidden; }
+    #school-header { display: flex; gap: 16px; align-items: center; padding: 12px 20px;
+      border-bottom: 2px solid #000; flex-wrap: wrap; }
+    #school-header h1 { margin: 0; font-size: 24px; flex: 1; }
+    .school-button { background: white; color: black; border: 1px solid black;
+      border-radius: 4px; padding: 10px 14px; font-size: 16px; cursor: pointer; }
+    #school-scroll { flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y;
+      -webkit-overflow-scrolling: touch; padding: 16px 20px 48px; }
+    #school-status { margin: 0 0 16px; font-size: 16px; line-height: 1.4; }
+    .school-group-children { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .school-group > h2 { margin: 24px 0 16px; border-bottom: 3px solid; padding-bottom: 8px; font-size: 27px; }
+    .school-child h2 { margin: 0 0 12px; font-size: 25px; border-bottom: 2px solid; padding-bottom: 8px; }
+    .school-card { border: 1px solid #aaa; border-radius: 6px; padding: 14px; margin-bottom: 12px;
+      overflow-wrap: anywhere; font-size: 18px; line-height: 1.4; }
+    .school-card h3 { font-size: 19px; margin: 6px 0; }
+    .school-card ul { padding-left: 22px; margin: 8px 0; }
+    .school-card li + li { margin-top: 6px; }
+    .school-card details { font-size: 15px; margin-top: 12px; }
+    .school-card summary { cursor: pointer; padding: 4px 0; }
+    .school-card blockquote { margin: 8px 0 0; white-space: pre-wrap; }
+    .school-review-label { font-size: 18px; margin: 22px 0 10px; }
+    .dashboard-canvas { position: relative; width: min(100vw, 141.17647vh); height: min(100vh, 70.83333vw); }
+    #school-open { position: absolute; left: 58.4%; top: 66.5%; width: 41.6%; height: 10%;
+      border: 0; background: transparent; cursor: pointer; }
+    #school-open:focus-visible { outline: 3px solid black; outline-offset: -3px; }
+    #school-link { display: block; padding: 8px; text-align: right; color: black; font-size: 16px; }
+    @media (max-width: 600px) { .school-group-children { grid-template-columns: 1fr; }
+      #school-header { gap: 8px; padding: 10px; } #school-header h1 { font-size: 21px; } }
   </style>
 </head>
 <body>
@@ -256,7 +286,10 @@ def _page(refresh_seconds: int) -> bytes:
     </section>
 
     <section id="dashboard-page" class="page" aria-label="Perheen näyttö">
+      <div class="dashboard-canvas">
       <img id="dashboard" src="/dashboard.png?v=0" alt="Perheen näyttö">
+      <button id="school-open" type="button" aria-label="Avaa kaikki koulumuistutukset" title="Avaa kaikki koulumuistutukset"></button>
+      </div>
     </section>
 
     <section id="month-page" class="page" aria-label="Kuukausikalenteri">
@@ -265,9 +298,21 @@ def _page(refresh_seconds: int) -> bytes:
         <h1 id="month-title">Kuukausikalenteri</h1>
         <button id="next-month" class="month-nav" type="button" aria-label="Seuraava kuukausi">›</button>
       </header>
+      <a id="school-link" href="/school">Koulumuistutukset →</a>
       <div id="month-scroll">
         <div id="month-status">Ladataan kalenteria…</div>
         <table id="month-table" hidden><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+    <section id="school-page" class="page" aria-label="Koulumuistutukset">
+      <header id="school-header">
+        <button id="school-back" class="school-button" type="button">‹ Kalenteri</button>
+        <h1>Koulusta muistettavaa</h1>
+        <button id="school-home" class="school-button" type="button">Etusivu</button>
+      </header>
+      <div id="school-scroll">
+        <p id="school-status" role="status">Ladataan muistutuksia…</p>
+        <div id="school-children"></div>
       </div>
     </section>
   </div>
@@ -303,6 +348,9 @@ def _page(refresh_seconds: int) -> bytes:
       if (view === "system") {
         track.style.transform = "translateX(0)";
         track.classList.add("system-visible");
+      } else if (view === "school") {
+        track.style.transform = "translateX(-300vw)";
+        loadSchool();
       } else if (view === "month") {
         track.style.transform = "translateX(-200vw)";
         track.classList.add("month-visible");
@@ -311,6 +359,114 @@ def _page(refresh_seconds: int) -> bytes:
         track.style.transform = "translateX(-100vw)";
       }
     }
+
+    function schoolElement(tag, text, className) {
+      const el = document.createElement(tag);
+      if (text !== undefined) el.textContent = text;
+      if (className) el.className = className;
+      return el;
+    }
+    function schoolDate(value) {
+      if (!value) return "";
+      const parsed = new Date(value + "T12:00:00");
+      return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("fi-FI", {
+        weekday: "short", day: "numeric", month: "numeric", year: "numeric"
+      });
+    }
+    let schoolLoading = false;
+    async function loadSchool() {
+      if (schoolLoading) return;
+      schoolLoading = true;
+      const status = document.getElementById("school-status");
+      const container = document.getElementById("school-children");
+      try {
+        const response = await fetch("/school-reminders.json?v=" + Date.now(), {cache: "no-store"});
+        if (!response.ok) throw new Error("fetch failed");
+        const data = await response.json();
+        if (!Array.isArray(data.items)) throw new Error("invalid response");
+        const updated = data.schoolwork_fetched_at ? new Date(data.schoolwork_fetched_at).toLocaleString("fi-FI") : "";
+        status.textContent = updated ? "Wilma-tiedot päivitetty " + updated + ". Haku päivittäin klo 12, 13, 14 ja 15." :
+          "Läksyjä, kokeita ja merkintöjä ei ole vielä saatu haettua.";
+        if (data.schoolwork_stale && updated) status.textContent += " Wilma-haku on viivästynyt tai epäonnistunut – näytetään viimeksi haetut tiedot.";
+        if (data.fetched_at) status.textContent += " Viestitiivistelmä: " + new Date(data.fetched_at).toLocaleString("fi-FI") + ".";
+        if (data.stale) status.textContent += " Viestitiivistelmän päivitys on viivästynyt.";
+        container.replaceChildren();
+        const names = [...new Set(["Neve", "Sera", ...data.items.map(item => item.student)])];
+        const advice = schoolElement("section", undefined, "school-group");
+        advice.appendChild(schoolElement("h2", "Suositukset seuraaville kahdelle päivälle"));
+        if (data.recommendations_start && data.recommendations_end) {
+          advice.appendChild(schoolElement("p", schoolDate(data.recommendations_start) + " – " + schoolDate(data.recommendations_end)));
+        }
+        if (data.recommendations_stale && (data.recommendations || []).length) {
+          advice.appendChild(schoolElement("p", "Suositusten päivitys on viivästynyt – tarkista yllä oleva ajanjakso."));
+        }
+        const adviceColumns = schoolElement("div", undefined, "school-group-children");
+        for (const name of ["Neve", "Sera"]) {
+          const card = schoolElement("article", undefined, "school-card");
+          card.appendChild(schoolElement("h3", name));
+          const childAdvice = (data.recommendations || []).find(item => item.student === name);
+          card.appendChild(schoolElement("p", childAdvice ? childAdvice.sentences.join(" ") : "Suositusta ei ole vielä saatavilla."));
+          adviceColumns.appendChild(card);
+        }
+        advice.appendChild(adviceColumns);
+        container.appendChild(advice);
+        for (const [key, label] of [["schoolwork", "Läksyt ja kokeet"], ["notes", "Merkinnät"], ["other", "Muut"]]) {
+          const group = schoolElement("section", undefined, "school-group");
+          group.appendChild(schoolElement("h2", label));
+          if (key === "schoolwork") group.appendChild(schoolElement("p", "Läksyt viimeiseltä 14 päivältä ja tulevat kokeet. Annettu-päivä ei ole palautuspäivä. Wilma ei kerro, onko läksy jo tehty."));
+          if (key === "notes") group.appendChild(schoolElement("p", "Tuntimerkinnät viimeiseltä 28 päivältä, uusimmat ensin."));
+          const columns = schoolElement("div", undefined, "school-group-children");
+        for (const name of names) {
+          const section = schoolElement("section", undefined, "school-child");
+          section.appendChild(schoolElement("h2", name));
+          const items = data.items.filter(item => item.student === name && item.category === key).sort((a, b) =>
+            Number(a.date_unknown) - Number(b.date_unknown) ||
+            ((key === "notes" || (a.kind === "homework" && b.kind === "homework")) ?
+              (b.date || "").localeCompare(a.date || "") : (a.date || "").localeCompare(b.date || "")));
+          if (!items.length) section.appendChild(schoolElement("p", key !== "other" && !data.schoolwork_fetched_at ? "Tietoja ei vielä saatavilla." : "Ei ajankohtaisia muistutuksia."));
+          let reviewHeading = false;
+          for (const item of items) {
+            if (item.date_unknown && !reviewHeading) {
+              section.appendChild(schoolElement("h3", "Tarkistettavaa / ilman määräpäivää", "school-review-label"));
+              reviewHeading = true;
+            }
+            const card = schoolElement("article", undefined, "school-card");
+            if (!item.date_unknown) {
+              let when = (item.date_label ? item.date_label + " · " : "") + schoolDate(item.date);
+              if (item.end_date && item.end_date !== item.date) when += " – " + schoolDate(item.end_date);
+              card.appendChild(schoolElement("strong", when));
+            }
+            card.appendChild(schoolElement("h3", (item.kind === "homework" ? "Läksy · " : "") + item.title));
+            if (item.needs_review && !item.date_unknown) card.appendChild(schoolElement("p", "Tarkista tiedot alkuperäisestä viestistä."));
+            if (item.remember.length) {
+              const list = schoolElement("ul");
+              for (const text of item.remember) list.appendChild(schoolElement("li", text));
+              card.appendChild(list);
+            }
+            if (item.evidence) {
+              const details = schoolElement("details");
+              details.appendChild(schoolElement("summary", "Katkelma Wilma-viestistä"));
+              details.appendChild(schoolElement("blockquote", item.evidence));
+              card.appendChild(details);
+            }
+            section.appendChild(card);
+          }
+          columns.appendChild(section);
+        }
+          group.appendChild(columns);
+          container.appendChild(group);
+        }
+      } catch (error) {
+        status.textContent = "Koulumuistutuksia ei saatu ladattua. Yritetään uudelleen hetken kuluttua.";
+      } finally { schoolLoading = false; }
+    }
+    document.getElementById("school-open").addEventListener("click", () => showView("school"));
+    document.getElementById("school-link").addEventListener("click", event => {
+      event.preventDefault(); showView("school");
+    });
+    document.getElementById("school-back").addEventListener("click", () => showView("month"));
+    document.getElementById("school-home").addEventListener("click", () => showView("dashboard"));
+    if (window.location.pathname === "/school") showView("school");
 
     function isoDate(year, month, day) {
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -454,6 +610,8 @@ def _page(refresh_seconds: int) -> bytes:
       if (activeView === "dashboard" && dx > 0) showView("system");
       else if (activeView === "dashboard" && dx < 0) showView("month");
       else if (activeView === "month" && dx > 0) showView("dashboard");
+      else if (activeView === "month" && dx < 0) showView("school");
+      else if (activeView === "school" && dx > 0) showView("month");
     }, {passive: true});
 
     window.addEventListener("message", (event) => {
@@ -465,6 +623,7 @@ def _page(refresh_seconds: int) -> bytes:
 
     setInterval(() => {
       image.src = "/dashboard.png?v=" + Date.now();
+      if (activeView === "school") loadSchool();
     }, __BROWSER_REFRESH_MS__);
 
     setInterval(() => {
@@ -500,7 +659,7 @@ def make_handler(state, refresh_seconds, config_path, use_cache):
             parsed = urlparse(self.path)
             path = parsed.path
 
-            if path == "/":
+            if path in {"/", "/school"}:
                 body = _page(refresh_seconds)
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -526,6 +685,14 @@ def make_handler(state, refresh_seconds, config_path, use_cache):
                 except Exception as exc:
                     log.exception("System health collection failed")
                     self._send_json(503, {"error": str(exc)})
+                return
+
+            if path == "/school-reminders.json":
+                try:
+                    self._send_json(200, school_payload())
+                except Exception:
+                    log.exception("School summary read failed")
+                    self._send_json(503, {"error": "Koulumuistutuksia ei voitu lukea"})
                 return
 
             if path == "/calendar-month.json":

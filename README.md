@@ -1,384 +1,178 @@
-# E-ink Dashboard
+# Perheen näyttö
 
-A home dashboard for a Waveshare 7.5" e-ink display (800×480), running on a Raspberry Pi. An inverted "departure board" band on top shows the clock, current weather and a leave-in countdown for the next transit connection; below it: daycare events, calendar, later departures, an electricity + waste stats line, and a 7-day forecast strip.
+**Perheen näyttö** on kotona käytössä oleva, selaimella avattava perheen yhteinen tietonäyttö. Raspberry Pi 5 julkaisee näkymän kodin sisäverkkoon: käyttämättömäksi jäänyt Android-tabletti näyttää sitä kiosk-tilassa ja sama osoite toimii myös perheen puhelimissa ja tietokoneissa, kun ne ovat kodin Wi-Fi-verkossa.
 
-## Layout
+**Toteutuksen tila:** käytössä kotiverkossa. **E-ink-näyttöä ei enää tavoitella eikä tarvita.** Repositorion nimi `eInk` sekä osa tiedostoista ja asetusten nimistä ovat aiemman laitteistosuunnitelman perintöä.
 
-```
-┌────────────────────────────────────────────────────────┐
-│  07:42  to 6.8.   ☁ 18° Pilvistä        lähtö 12 min   │  NOW band (inverted)
-├──────────────────┬──────────────────┬──────────────────┤
-│  PÄIVÄKOTI       │  KALENTERI       │  HSL             │
-│  Daycare events  │  Calendar events │  Later departures│
-├──────────────────┴──────────────────┴──────────────────┤
-│  Sähkö 32.0 kWh eilen · Sekajäte 7 pv · Biojäte 26 pv  │  stats line
-├────────────────────────────────────────────────────────┤
-│  ENNUSTE  (7-day forecast as columns)                  │
-└────────────────────────────────────────────────────────┘
-```
+> **Tärkeää GitHub-haaroista:** nykyinen sovellus sijaitsee haarassa **`family-dashboard-v1`**. Repositorion oletushaara `main` sisältää vanhan e-ink-painotteisen version, eikä sen koodi vastaa tätä kotiverkon web-sovellusta.
 
-The clock and the countdown live in the band's partial-refresh regions, so they tick every minute between full refreshes.
+## Näin järjestelmä toimii
 
-## Hardware
+~~~text
+                    KODIN WIFI / LÄHIVERKKO
 
-| Part | Model | Notes |
-|---|---|---|
-| Display | Waveshare 7.5" e-Paper HAT V2 (800×480) | Black/white |
-| Computer | Raspberry Pi Zero 2 W (or any Pi with 40-pin GPIO) | Needs pre-soldered headers |
-| Power | 5V micro-USB charger, ≥1A | Standard phone charger works |
+  Tietolähteet
+  (kalenterit, sää, Wilma, HSL, muistutukset)
+                 |
+                 v
+  Raspberry Pi 5 (aina päällä)
+    Python-datamoduulit -> render_family_13in3.py
+    -> output/dashboard.png -> web_dashboard.py :8080
+                 |
+                 +--> Android-tabletti, kiosk-tila
+                 +--> perheen puhelimet ja tietokoneet
+~~~
 
-> **Important:** The Raspberry Pi Zero 2 W is sold both with and without GPIO headers.
-> The Waveshare HAT has a female connector and requires **male pins** on the Pi.
-> Make sure to buy the **"with headers" (WH) version**, or solder a 2×20 male header yourself.
+- **Palvelin:** Raspberry Pi 5 (2 Gt), Raspberry Pi OS Lite 64-bit. Laite toimii ilman näyttöä, SSH-istuntoa tai jatkuvasti päällä olevaa muuta tietokonetta.
+- **Julkaisu:** Pythonin HTTP-palvelin `web_dashboard.py` kuuntelee oletuksena osoitteessa `0.0.0.0:8080`, jotta näkymä on käytettävissä kodin lähiverkossa.
+- **Pysyvä osoite:** reitittimeen on tehty Raspberry Pille DHCP-varaus. Tabletilla käytetään varattua lähiverkon IP-osoitetta, koska `.local`-nimen toiminta ei ollut luotettavaa.
+- **Yhteinen näyttö:** vanha Android-tabletti on jätetty näyttämään verkkosivua kiosk-tilassa. Erillistä e-paperia, GPIO-näyttöä tai tablettiin asennettavaa Python-sovellusta ei tarvita.
+- **Automaattinen käynnistys:** `family-dashboard.service` käynnistää `dashboard_supervisor.py`-prosessin Raspberry Pi -palvelimen käynnistyessä. Palvelimen toiminta uudelleenkäynnistyksen jälkeen on varmistettu kotikäytössä.
 
-## Data sources
+## Käyttö
 
-| Module | Source | Auth |
-|---|---|---|
-| Weather + forecast | [Open-Meteo](https://open-meteo.com/) | None |
-| Calendar | Google Calendar iCal | Secret URL token |
-| Waste | Manual schedule in config | None |
-| Daycare | Espoo eVaka (`/api/citizen/auth/weak-login`) | Username + password |
-| Transit | [HSL Digitransit v2 GraphQL](https://portal-api.digitransit.fi/) | API key |
+Avaa millä tahansa kodin samaan lähiverkkoon liitetyllä laitteella:
 
-## Development setup (macOS)
+~~~text
+http://<raspberry-pin-lähiverkon-ip>:8080
+~~~
 
-### 1. Clone and create virtualenv
+Raspberry Pi -palvelimella voit tarkistaa näkymän myös osoitteesta `http://localhost:8080`. Kodin ulkopuolelle ei ole tarkoitus avata julkista yhteyttä.
 
-```bash
-git clone <repo>
+### Neljä selainnäkymää
+
+1. **Perheen näyttö (etusivu)** – yhdellä silmäyksellä luettava päivätilanne. Pääasiallinen sisältö piirtyy 960 × 680 pikselin PNG-kuvaksi ja selaimessa kuva skaalautuu näyttöön.
+2. **Kuukausikalenteri** – pyyhkäise etusivulta **vasemmalle**. Näyttää kalenterien tapahtumat kuukausittain, voidaan vierittää pystysuunnassa ja kuukautta voi vaihtaa nuolilla. Pyyhkäise oikealle palataksesi etusivulle.
+3. **Raspberry Pi -järjestelmän tila** – pyyhkäise etusivulta **oikealle**. Sisältää lämpötilan, suorituskyvyn, muistin, levytilan, palvelun ja yhteyksien tilan. Pyyhkäise vasemmalle palataksesi.
+4. **Koulusta muistettavaa** – avaa kuukausikalenterista pyyhkäisemällä **vasemmalle** tai painamalla koulumuistutusten linkkiä; myös suora reitti `/school`. Sisältää lasten koulutehtäviä, kokeita, merkintöjä ja Wilma-viesteistä poimittuja muistutuksia.
+
+Päänäkymässä on lisäksi linkki koulumuistutuksiin. Kiosk-tilan tarkat asetukset riippuvat käytetystä Android-tabletista ja kiosk-selaimesta; sovellus itsessään on tavallinen verkkosivu.
+
+### Tietosisältö
+
+Toteutus hyödyntää seuraavia moduuleja. Käytössä olevat ominaisuudet määritellään paikallisen `config.yaml`-tiedoston `features`-osiossa.
+
+| Sisältö | Lähde tai toiminta |
+| --- | --- |
+| Kello, päivä ja sää | Palvelimen aika sekä Open-Meteo |
+| Perheen kalenterit | Yksityiset Google Calendar / iCal -syötteet |
+| Lasten koulukalenterit | Wilman yksityiset iCal-syötteet |
+| Koulumuistutukset | Wilma-viestit, läksyt, kokeet ja merkinnät; paikallinen tilatieto ja tarvittaessa AI-analyysi |
+| Joukkoliikenne | HSL / Digitransit, jos API-avain ja pysäkit on määritelty |
+| Muistettavaa | Paikallisessa konfiguraatiossa määritellyt tehtävät |
+| Järjestelmän tila | Raspberry Pi -palvelimen paikalliset mittaukset |
+
+Koulumuistutusten erillinen ajo käyttää `wilma_nightly.py`-skriptiä ja tallentaa yksityisen tuloksen paikalliseen välimuistiin. Nykyisessä asennuksessa se ajetaan päivän aikana klo 12, 13, 14 ja 15 (Europe/Helsinki). Selainnäkymän avaaminen ei itsessään käynnistä Wilman tai AI:n hakua.
+
+## Käynnistäminen kehityskoneella tai uudella Raspberry Pi:llä
+
+Ohjeet koskevat **`family-dashboard-v1`-haaraa**, eivät vanhaa `main`-haaraa.
+
+~~~bash
+git clone --branch family-dashboard-v1 https://github.com/salajukk/eInk.git
 cd eInk
 python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
+venv/bin/python -m pip install -r requirements.txt
 cp config.example.yaml config.yaml
-```
+~~~
 
-Edit `config.yaml` with your credentials and location. The file contains passwords and API keys — do not commit it.
+Muokkaa `config.yaml`-tiedostoon omat kalenterit, tunnukset, sijainti, mahdolliset HSL-tiedot sekä `features`-valinnat. Päänäkymän nykyiset kuvakoko- ja asetteluasetukset ovat:
 
-Key settings:
+~~~yaml
+display:
+  width: 960
+  height: 680
+  layout: family_13in3
+~~~
 
-```yaml
-location:
-  latitude: 60.1699
-  longitude: 24.9384
-  name: "Helsinki"
+Asetuksen nimi `family_13in3` on historiallinen; se valitsee käytössä olevan kuvapohjaisen perhenäkymän **eikä tarkoita, että e-paperinäyttö olisi käytössä**. Myös mallinimi `waveshare_13in3k` voi esiintyä vanhoissa konfiguraatioissa, mutta `web_dashboard.py` ei ohjaa näyttölaitteistoa.
 
-hsl:
-  api_key: "your-key-from-portal-api.digitransit.fi"
-  to_name: "Pasila"
-  to_lat: 60.1985
-  to_lon: 24.9323
-  min_walk_bus: 3       # minutes to nearest bus stop
-  min_walk_rail: 15     # minutes to nearest train station
+Käynnistä lähiverkon verkkopalvelu:
 
-waste:
-  collections:
-    - type: "Sekajäte"
-      interval_weeks: 2
-      next_date: "2026-03-25"
-    - type: "Biojäte"
-      interval_weeks: 4
-      next_date: "2026-03-16"
-```
+~~~bash
+venv/bin/python web_dashboard.py
+~~~
 
-### 3. Google Calendar iCal link
+Oletukset: HTTP-portti **8080**, kuvan renderöinti **30 sekunnin välein**, kuvan automaattinen päivitys selaimessa. Tavallista sää- ja kalenterivälimuistia rajataan web-käytössä enintään viiteen minuuttiin ja HSL-välimuistia enintään yhteen minuuttiin; vanhentuneet lähdöt poistetaan näytöstä myös renderöintien yhteydessä.
 
-In Google Calendar: *Calendar settings → "Private address in iCal format"*. Add the URL to `config.yaml`:
+Esimerkiksi portin ja renderöintivälin voi vaihtaa näin:
 
-```yaml
-calendars:
-  - name: "Oma"
-    ical_url: "https://calendar.google.com/calendar/ical/.../basic.ics"
-```
+~~~bash
+venv/bin/python web_dashboard.py --host 0.0.0.0 --port 8080 --refresh-seconds 30 --config config.yaml
+~~~
 
-### 4. HSL API key
+Windowsilla käytä virtuaaliympäristön Pythonia `venv\Scripts\python.exe`. Verkkopalvelin toimii ilman fyysistä e-ink-laitetta.
 
-Register at [portal-api.digitransit.fi](https://portal-api.digitransit.fi/) and create a subscription for the Routing API. Add the key to `config.yaml`.
+## Raspberry Pi:n jatkuva käyttö ja automaattiset GitHub-päivitykset
 
-### 5. Run
+Kotona palvelin ajetaan `dashboard_supervisor.py`-prosessin kautta. Se käynnistää web-palvelimen, valvoo sitä ja tarkistaa **`origin/family-dashboard-v1`**-haaran päivitykset oletuksena **60 sekunnin välein**. Uudempi koodi otetaan käyttöön vain turvallisella fast-forward-päivityksellä; paikallisia muokattuja versionhallittuja tiedostoja ei ylikirjoiteta. Palvelu käynnistetään `systemd`:llä.
 
-```bash
-source venv/bin/activate
+Käynnistyksen testaus:
 
-# Full run, open preview on macOS
-python main.py --preview
+~~~bash
+cd ~/eInk
+venv/bin/python dashboard_supervisor.py
+~~~
 
-# Force data refresh (skip cache)
-python main.py --no-cache --preview
+Nykyisen palvelun tilan ja lokien tarkistus:
 
-# Test a single module
-python main.py --only weather
-python main.py --only hsl --no-cache
+~~~bash
+systemctl status family-dashboard.service
+journalctl -u family-dashboard.service -n 100 --no-pager
+~~~
 
-# Partial-refresh just the cells listed in config.partial_updates (no API calls).
-# On macOS the simulator overlays the patched regions onto output/dashboard.png.
-python main.py --partial-only
+Katso palvelun luonti ja käyttöönotto tiedostosta [AUTO_UPDATE.md](AUTO_UPDATE.md). **Huom:** automaattinen Git-päivitys ei asenna uusia Python-riippuvuuksia; jos `requirements.txt` muuttuu, riippuvuudet on päivitettävä palvelimella erikseen.
 
-# Force a true full refresh instead of the default fast refresh
-python main.py --full-refresh
-```
+## Tarkistus ja ylläpito
 
-## Raspberry Pi deployment
+| Osoite / komento | Käyttötarkoitus |
+| --- | --- |
+| `/` | Perheen pääsivu |
+| `/dashboard.png` | Viimeksi renderöity pääkuva |
+| `/health` | Web-palvelun terveystarkistus |
+| `/system` ja `/system-health.json` | Raspberry Pin tila |
+| `/calendar-month.json?year=2026&month=11` | Kuukausikalenterin data |
+| `/school` ja `/school-reminders.json` | Koulunäkymä ja tallennettu muistutusaineisto |
 
-### 1. Flash SD card
+Yksittäisten tietolähteiden vianetsintää varten:
 
-Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
-- OS: Raspberry Pi OS Lite (64-bit)
-- Enable SSH, set username/password, configure WiFi (country: FI)
+~~~bash
+venv/bin/python main.py --only weather --no-cache
+venv/bin/python main.py --only calendar --no-cache
+venv/bin/python main.py --only school --no-cache
+venv/bin/python main.py --only hsl --no-cache
+venv/bin/python -m unittest tests.test_calendar_month tests.test_swipe_navigation tests.test_system_health -v
+~~~
 
-### 2. Connect display
+Osa testeistä ja tietolähdekomennoista edellyttää vastaavan ominaisuuden asetuksia ja tunnuksia.
 
-Attach the Waveshare HAT to the 40-pin GPIO header with the Pi powered off.
+## Tietosuoja ja verkkoturvallisuus
 
-### 3. Enable SPI
+**Verkkosovellus on tarkoitettu vain luotettuun kotiverkkoon.** Nykyinen HTTP-palvelin ei toteuta käyttäjäkohtaista kirjautumista. Saman lähiverkon käyttäjät voivat nähdä perheen kalenteri- ja koulutietoja. Älä tee reitittimeen porttiohjausta palvelulle äläkä julkaise sitä suoraan internetiin.
 
-```bash
-ssh -t USER@HOSTNAME "sudo raspi-config nonint do_spi 0"
-```
+- `config.yaml` sisältää yksityisiä iCal-osoitteita, tunnuksia ja API-avaimia; se on gitignore-säännöissä eikä kuulu GitHubiin.
+- `cache/` sisältää paikallista, mahdollisesti arkaluonteista perhedataa; sitä ei pidä jakaa tai viedä versionhallintaan.
+- AI-pohjainen Wilma-viestien analyysi voi käyttää erikseen määriteltyä palvelua tai paikallisesti käynnistettyä Codex-ajoa. Tarkista alkuperäinen Wilma-viesti, jos muistutus on epäselvä.
+- Kiosk-tabletin on oltava luotetussa kotiverkossa. Vältä turhaa henkilökohtaisten tietojen näyttämistä vierasverkkoon liitetyille laitteille.
 
-### 4. Install system dependencies
+## Keskeiset tiedostot
 
-```bash
-ssh -t USER@HOSTNAME "sudo apt install -y git python3-venv python3-pip swig liblgpio-dev"
-```
+~~~text
+web_dashboard.py           # HTTP-palvelin ja selaimen neljä näkymää
+dashboard_supervisor.py    # web-prosessi ja GitHub-päivitysvalvonta
+main.py                    # tietomoduulien ajaminen ja renderöinnin orkestrointi
+render_family_13in3.py     # nykyisen päänäkymän 960x680 PNG-renderöinti
+data/                      # sää, kalenterit, koulu, HSL, muistutukset jne.
+integrations/              # Wilma-tiedonhaku
+analysis/                  # koulumuistutusten analyysi
+school_summary_page.py     # koulumuistutusten web-data
+system_health.py           # Raspberry Pi:n terveystiedot
+system_health_page.py      # terveystietojen selainkäyttöliittymä
+wilma_nightly.py           # ajastettu Wilma-päivitys
+config.example.yaml        # asetusten mallipohja; oikea config.yaml vain paikallisesti
+tests/                     # yksikkö- ja käyttöliittymätestit
+~~~
 
-### 5. Sync project files from Mac
+Lisätietoja: [AUTO_UPDATE.md](AUTO_UPDATE.md) (käyttöönotto ja automaattinen päivitys), [TABLET_MONTH_CALENDAR.md](TABLET_MONTH_CALENDAR.md) (kalenteri), [SYSTEM_HEALTH.md](SYSTEM_HEALTH.md) (valvonta) sekä [WILMA_REMINDERS.md](WILMA_REMINDERS.md) (koulumuistutukset). Näissä ja vanhoissa `FAMILY_DASHBOARD.md`- ja `PROJECT_CONTEXT.md`-muistiinpanoissa voi yhä olla e-paperia koskevia historiallisia suunnitelmia.
 
-```bash
-./sync.sh
-```
-
-Or manually:
-```bash
-rsync -av --exclude venv --exclude cache --exclude output --exclude .git \
-  /path/to/eInk/ USER@HOSTNAME:~/eInk/
-```
-
-### 6. Set up virtualenv and install Python dependencies
-
-```bash
-ssh USER@HOSTNAME "cd ~/eInk && python3 -m venv venv && venv/bin/pip install -r requirements.txt"
-```
-
-The e-paper driver is `betterepd7in5` (on PyPI, pulled in by `requirements.txt`). It fixes the partial-update-after-sleep corruption the stock Waveshare driver exhibits and is significantly faster on the Pi Zero 2 W.
-
-### 7. Create required directories
-
-```bash
-ssh USER@HOSTNAME "mkdir -p ~/eInk/cache ~/eInk/output"
-```
-
-### 8. Copy config
-
-```bash
-scp config.yaml USER@HOSTNAME:~/eInk/config.yaml
-```
-
-### 9. Test
-
-```bash
-ssh USER@HOSTNAME "cd ~/eInk && venv/bin/python main.py --no-cache"
-```
-
-### 10. Set up cron
-
-The crontab is checked in at `cron/eink.crontab` and installed via `sync_cron.sh`. Three rhythms run on `flock`-protected mutually-exclusive minute slots so they can't collide on the SPI bus:
-
-| Slot | Command | Purpose |
-|---|---|---|
-| Minutes 1–9, 11–19, …, 51–59 | `main.py --partial-only` | Partial-refresh cells in `config.partial_updates` (no API calls) |
-| Minutes 10, 20, 30, 40, 50 | `main.py` | Fast refresh of the full dashboard |
-| Minute 0 (every hour) + `@reboot` | `main.py --full-refresh` | True full refresh — clears ghosting, bootstraps partial baseline |
-
-Edit `cron/eink.crontab` (update `juhani` to your username) then push:
-
-```bash
-./sync_cron.sh
-```
-
-The script preserves any other crontab entries on the Pi — it only replaces the block between `# >>> eink-managed >>>` markers.
-
-### Sync changes from Mac
-
-```bash
-./sync.sh        # rsync project files (excludes venv, cache, output, .git)
-./sync_cron.sh   # only when cron/eink.crontab changed
-```
-
-## Project structure
-
-```
-eInk/
-├── main.py              # Entry point, CLI args, module orchestration
-├── render.py            # Pillow-based image renderer (800×480, grayscale)
-├── sync.sh              # rsync project files Mac → Pi
-├── sync_cron.sh         # Push cron/eink.crontab to the Pi
-├── config.yaml          # Your config (not committed)
-├── config.example.yaml  # Template
-├── cron/
-│   └── eink.crontab     # Managed crontab block (installed via sync_cron.sh)
-├── data/
-│   ├── weather.py       # Open-Meteo (current + 7-day forecast)
-│   ├── calendar.py      # iCal / Google Calendar
-│   ├── electricity.py   # Caruna / pycaruna
-│   ├── waste.py         # Manual waste schedule
-│   ├── evaka.py         # Espoo daycare (eVaka)
-│   └── hsl.py           # HSL Digitransit transit (incl. drop_past_departures filter)
-├── display/
-│   ├── simulator.py     # PNG output for macOS development
-│   └── epaper.py        # Waveshare 7.5" V2 driver via betterepd7in5
-├── fonts/               # Optional: place Inter-Regular.ttf + Inter-Bold.ttf here
-├── cache/               # JSON cache files + cur_display.png partial baseline (auto-generated)
-└── output/              # Output PNG (auto-generated, macOS only)
-```
-
-## Caching
-
-Each module writes a JSON cache file under `cache/`. TTLs are configurable per module in `config.yaml`. Stale cache is used as a fallback when an API call fails — the dashboard always shows something even when offline.
-
-```yaml
-cache:
-  ttl_minutes: 55           # weather, calendar
-  hsl_ttl_minutes: 10       # real-time transit
-  hsl_active_hours: [6, 22] # no HSL fetches outside these hours
-  evaka_ttl_minutes: 1440   # daycare: once per day
-  electricity_ttl_minutes: 720
-```
-
-## Partial updates
-
-The cron's per-minute slot runs `main.py --partial-only`, which re-renders the dashboard from cache only (no API calls) and partial-refreshes the cells listed in config:
-
-```yaml
-partial_updates:
-  clock: true   # NOW band clock+date — ticks every minute
-  hsl: true     # NOW band leave-in countdown — recomputed every minute
-```
-
-Available cells are defined in `render.py` as `PARTIAL_CELLS`. Each entry is `{region, data_key, filter}` where `filter` is an optional `module:function` that mutates the cell's data before render — the HSL cell uses `data.hsl:drop_past_departures` to remove connections where the recomputed `minutes_until ≤ 0`. New partial-eligible cells need an `x`-aligned region (multiples of 8) and an entry in the registry.
-
-If `partial_updates` is missing or empty, `--partial-only` is a no-op.
-
-## Wilma AI summaries
-
-The optional cloud analyzer extracts concise Finnish school reminders per child
-from message subjects and bodies. Child and message IDs are attached locally.
-Credentials and sender metadata are not sent to the AI service. Existing display
-integration renders the reminders under `Koulusta muistettavaa`.
-
-Configure in the gitignored `config.yaml`:
-
-```yaml
-wilma_ai:
-  enabled: true
-  model: "YOUR_RESPONSES_STRUCTURED_OUTPUTS_MODEL"
-  api_key: "YOUR_OPENAI_API_KEY"
-```
-
-Alternatively supply `OPENAI_API_KEY` to the dashboard service environment.
-Use a separately billed API key; do not commit it or paste it into chat.
-Model output uses the Responses API strict JSON schema and `store: false`:
-https://developers.openai.com/api/docs/guides/structured-outputs
-This setting does not itself promise zero provider retention.
-
-Unchanged messages reuse local analysis; changing the model invalidates their
-analysis hash after the normal cache TTL (30 minutes by default). Request failures,
-refusals, incomplete responses and malformed data preserve the existing stale
-cache instead of overwriting it. No message bodies or API responses are logged.
-Messages above 60,000 characters fail explicitly rather than being truncated.
-
-Each reminder includes a verbatim evidence excerpt and original message ID.
-Dates resolve against the message send date. Undated actions appear as `Tarkista:`
-review tasks and remain visible until resolved in the source message or local
-state; do not treat their displayed review date as an event date. AI interpretation
-can still be wrong; consult the original Wilma message for confirmation.
-
-With a key configured, validate from the project directory:
-
-```bash
-venv/bin/python wilma_reminders_check.py --no-cache
-venv/bin/python -m unittest tests.test_wilma_ai tests.test_wilma_reminders
-```
-
-### Nightly Codex mode (no API key)
-
-`wilma_nightly.py` fetches Wilma messages to private `cache/wilma_messages.json`,
-then invokes the installed Codex CLI with saved ChatGPT login, read-only sandbox,
-ephemeral session and a strict output schema. Changed messages are analyzed in
-bounded batches. The job retains older future reminders. Only validated output
-is atomically published as `cache/wilma_codex_summary.json`; failed runs retain
-the last successful summary. State is in `cache/wilma_codex_state.json`.
-The current snapshot and state contain family data and stay gitignored with
-owner-only permissions. Codex output is not written to the system log.
-
-Set `wilma_ai.provider: codex_file` and `features.school_reminders: true` locally.
-In this mode the display only reads the summary file, never contacts Wilma or AI.
-The header shows last successful update time and marks data stale after 36 hours.
-Undated review tasks remain until the message changes or local state is resolved.
-
-Installed schedule: daily at 12:00, 13:00, 14:00 and 15:00, host timezone Europe/Helsinki, using the
-salamapi user's crontab. Run manually with:
-
-```bash
-cd /home/salamapi/eInk
-venv/bin/python wilma_nightly.py
-```
-
-Check `cache/wilma_nightly.log` if the update time stops advancing. Renew Codex
-ChatGPT login if required. Normal Codex plan usage limits apply. No API key is
-needed. Disable by removing the marked cron block; the last summary stays visible.
-
-### All school reminders on the tablet
-
-Open `/school` or tap the dashboard's `Koulusta muistettavaa` area. You can also
-swipe left from the monthly calendar, then right to return. The school page shows
-all active reminders in Neve/Sera columns, with full text, dates and expandable
-source excerpts. Undated review tasks are grouped separately without an invented
-event date. On narrow screens columns stack and the page scrolls vertically.
-The header reports the last successful update and warns when it is delayed.
-`/school-reminders.json` reads only the locally saved summary; opening this page
-never polls Wilma or invokes Codex. The dashboard still shows one compact row per
-child. Reload an already-open tablet browser once after installation.
-
-### Homework, exams and lesson notes
-
-The school page groups records into `Läksyt ja kokeet`, `Merkinnät` and `Muut`,
-with separate child columns inside each group. Wilma is polled every day at
-12:00, 13:00, 14:00 and 15:00 in Europe/Helsinki; this replaces the 03:15 job.
-The existing `wilma_nightly.py` filename is retained for compatibility. Each run
-refreshes direct records and summarizes changed messages using Codex.
-
-Direct records are stored privately in `cache/wilma_schoolwork.json`. Homework
-from teaching group journals is shown for the last 14 days with its given date,
-without inventing deadlines or completion status. Exams include future dates
-and original scope descriptions. Notes include the last 28 days; duplicate
-identical cells on the same day are collapsed. Notes are read from the history
-view, not just unexplained absences. Raw records never go through the AI model.
-
-A failed direct fetch preserves the previous snapshot and marks its status as
-failed in `cache/wilma_schoolwork_status.json`. The page reports direct-fetch and
-message-summary times separately, since AI failure must not hide fresh homework.
-Install `beautifulsoup4` from requirements if not already available.
-
-### Two-day recommendations
-
-The first section of the school page contains exactly three short Finnish sentences
-for each child, generated by Codex from saved homework, exams, recent notes and
-message reminders. The visible period covers tomorrow and the following day.
-The advice prioritizes preparation for the nearest exams and conditional checking
-of homework, since completion and due dates are not known. Notes older than seven
-days are excluded from advice inputs. The original records remain below.
-
-Recommendations update after each successful scheduled refresh. A fingerprint
-includes the current date and source contents, so unchanged records are reused
-within a day and the two-day period is regenerated on a new day. A schema and
-validation require both children, exactly three sentences each, and source IDs
-belonging to the correct child. Results are atomically saved in
-`cache/wilma_recommendations.json`; failures retain old advice with a delayed-update
-warning and the original period. Generation uses the existing ChatGPT login.
+**Projektin nykyinen suunta:** ylläpidetään toimivaa, kodin Wi-Fi-verkossa käytettävää Raspberry Pi + selain + kiosk-tabletti -ratkaisua. Vanhoja `display/epaper*.py`-tiedostoja ei ole vielä poistettu, mutta ne eivät ole osa käytössä olevaa ratkaisua eivätkä enää sen kehitystavoite.

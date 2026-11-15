@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Family E-ink Dashboard – config.example.yaml
+# Family Dashboard (browser/LAN) – config.example.yaml
 #
 # Copy this file to config.yaml and fill in your own values.
 # config.yaml is gitignored – never commit it (contains credentials).
@@ -118,15 +118,15 @@ evaka:
   base_url: "https://espoonvarhaiskasvatus.fi"
 
 # ── Display ──────────────────────────────────────────────────────────────────
-# Recommended family wall display: Waveshare 13.3inch e-Paper HAT (K), 960x680.
+# Current browser dashboard render: 960x680 PNG; no physical e-paper is used.
 display:
-  model: "waveshare_13in3k"
+  model: "waveshare_13in3k"  # legacy hardware identifier; ignored by web_dashboard.py
   width: 960
   height: 680
   rotation: 0
   layout: "family_13in3"
 
-# For the original Waveshare 7.5inch V2, use instead:
+# Legacy physical e-paper option (not part of the current deployment):
 # display:
 #   model: "waveshare_7in5_v2"
 #   width: 800

@@ -1,5 +1,6 @@
 config.yaml
 credentials.json
+deploy.env
 
 # Cache – keep directory, ignore contents
 cache/*
@@ -19,3 +20,6 @@ venv/
 # macOS
 .DS_Store
 .claude/
+
+# Local configuration backups contain credentials
+config.yaml.*

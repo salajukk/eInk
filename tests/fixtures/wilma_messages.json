@@ -1,0 +1,25 @@
+{
+  "messages": [
+    {
+      "id": "retki-1",
+      "sent_at": "2026-09-13T12:00:00",
+      "sender": "Luokanopettaja",
+      "subject": "Ensi viikon retki",
+      "body": "Ensi viikon keskiviikkona lähdemme retkelle. Lähtö tapahtuu heti aamulla. Oppilailla tulee olla mukana eväät ja säänmukainen vaatetus."
+    },
+    {
+      "id": "math-1",
+      "sent_at": "2026-09-14T08:00:00",
+      "sender": "Opettaja",
+      "subject": "Matematiikka",
+      "body": "Torstaina tarvitsemme matematiikan tunnilla geometriset välineet. Perjantaina pidämme pienen kokeen."
+    },
+    {
+      "id": "info-1",
+      "sent_at": "2026-09-14T09:00:00",
+      "sender": "Opettaja",
+      "subject": "Viikkotiedote",
+      "body": "Ensi viikolla jatkamme matematiikassa geometriaa ja harjoittelemme ryhmissä."
+    }
+  ]
+}

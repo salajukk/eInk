@@ -1,187 +1,81 @@
-# E-ink Dashboard – CLAUDE.md
+# Perheen näyttö – development notes
 
-## Project overview
+Read [README.md](README.md) and [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) first. This repository is named `eInk` for historical reasons, but the active product is **a browser-based family dashboard served over the trusted home LAN**, not a physical e-paper display.
 
-Home dashboard for Waveshare 7.5" e-ink display (800×480px, grayscale).
-Development on macOS (PNG simulation), deployed on Raspberry Pi Zero 2 W.
+## Current deployment
 
-Hardware: Waveshare 7.5" e-Paper HAT V2 + Raspberry Pi Zero 2 W (wall-mounted in kitchen).
-Network: 2.4 GHz WiFi only (Zero 2 W limitation), hostname `kitchen.local` (192.168.1.241).
-WiFi power-save is disabled (`nmcli connection modify netplan-wlan0-asdasda2.4
-802-11-wireless.powersave 2`, persists across reboots) — with the NetworkManager
-default the Pi slept too deeply to answer ping/SSH/mDNS between fetches.
+- Development branch: **`main`**. The old `family-dashboard-v1` code was merged into `main` on 2026-11-15.
+- Production hardware: Raspberry Pi 5 (2 GB), Raspberry Pi OS Lite 64-bit, always-on headless service.
+- Display: reused Android tablet in kiosk mode; other devices on home Wi-Fi use the same HTTP URL.
+- Server: `web_dashboard.py`, default `0.0.0.0:8080`, protected by the trusted LAN (no built-in login).
+- Supervisor: `dashboard_supervisor.py` launched by `family-dashboard.service`, with 60-second Git checks and 30-second dashboard rendering by default.
+- Raspberry Pi URL uses a router-reserved LAN IP, not a `.local` name.
+- The deployed Pi may still be checking out `family-dashboard-v1` until its local branch is migrated. **Do not assume GitHub merge changes the Pi checkout**. Migration instructions: [AUTO_UPDATE.md](AUTO_UPDATE.md).
 
-## Running
+## Project structure
 
-```bash
-cd /Users/sihvojuh/Personal/Projects/eInk
-source venv/bin/activate
+- `web_dashboard.py`: HTTP server, primary dashboard image, browser shell, monthly calendar and school view.
+- `main.py`: feature switches, data orchestration, renderer selection and CLI diagnostics.
+- `render_family_13in3.py`: 960 × 680 primary family dashboard renderer, reused as browser PNG despite the historical layout name.
+- `data/`: weather, calendar, calendar_month, HSL, school, tasks, school reminders, and legacy optional sources.
+- `integrations/`: Wilma source adapters.
+- `analysis/`: school reminder and recommendation logic.
+- `wilma_nightly.py`: scheduled Wilma schoolwork and summary refresh.
+- `school_summary_page.py`: JSON payload for school view.
+- `system_health.py`, `system_health_page.py`: read-only Raspberry Pi health collection and UI.
+- `dashboard_supervisor.py`: fast-forward-only Git updates, service restart and process recovery.
+- `config.example.yaml`: configuration template. Real `config.yaml` and `cache/` data are private and gitignored.
+- `tests/`: unit tests.
 
-python main.py --preview           # full run, open PNG on macOS
-python main.py --no-cache --preview
-python main.py --only hsl --no-cache   # test single module
-```
+`display/epaper*.py`, `render.py`, `render_family.py`, and the `requirements-pi-*.txt` files are retained legacy hardware paths, not part of the deployed kiosk system. Avoid reintroducing a physical e-ink requirement.
 
-Sync to Pi:
-```bash
-./sync.sh   # rsync to juhani@kitchen.local:~/eInk/ (excludes venv, cache, output, .git)
-```
+## Setup and common commands
 
-Run on Pi:
-```bash
-ssh juhani@kitchen.local "cd ~/eInk && venv/bin/python main.py"
-ssh juhani@kitchen.local "cd ~/eInk && venv/bin/python main.py --no-cache"
-```
+~~~bash
+git clone https://github.com/salajukk/eInk.git
+cd eInk
+python3 -m venv venv
+venv/bin/python -m pip install -r requirements.txt
+cp config.example.yaml config.yaml
+# set your local config.yaml values
+venv/bin/python web_dashboard.py
+# or run the supervisor:
+venv/bin/python dashboard_supervisor.py
+~~~
 
-Python: 3.13, venv at `venv/`
+A Raspberry Pi service is boot-enabled through `family-dashboard.service`. Do not start a second web server on port 8080 while the service is running.
 
-## File structure
+Diagnosis:
 
-```
-main.py              – entry point, CLI, module orchestration
-render.py            – Pillow renderer, 800×480 grayscale (mode L)
-sync.sh              – rsync helper script (Mac → Pi)
-config.yaml          – credentials + settings (NOT committed)
-config.example.yaml  – template
+~~~bash
+venv/bin/python main.py --only weather --no-cache
+venv/bin/python main.py --only calendar --no-cache
+venv/bin/python main.py --only hsl --no-cache
+venv/bin/python -m unittest discover -s tests -v
+systemctl status family-dashboard.service
+journalctl -u family-dashboard.service -n 100 --no-pager
+~~~
 
-fonts/
-  Inter-Regular.ttf  – preferred font (both Mac and Pi)
-  Inter-Bold.ttf
+## Browser behavior
 
-data/
-  weather.py         – Open-Meteo REST (no auth)
-  calendar.py        – iCal / Google Calendar (secret URL token)
-  electricity.py     – Caruna via pycaruna (username/password)
-  waste.py           – manual schedule from config
-  evaka.py           – Espoo eVaka weak-login session API
-  hsl.py             – HSL Digitransit v2 GraphQL
+- Primary dashboard renders a 960 × 680 PNG to `output/dashboard.png`, visually fitted into the browser screen. The browser refreshes it without reloading the entire page.
+- Swipe right from primary: system health. Swipe left: monthly calendar. Swipe left from monthly calendar: school reminders. Return gestures work in the opposite direction.
+- Routes: `/`, `/dashboard.png`, `/calendar-month.json`, `/system`, `/system-health.json`, `/school`, `/school-reminders.json`, `/health`.
+- Browser data refresh: generic weather/calendar caches capped at 5 min, HSL capped at 1 min; expired departure data is pruned on each image render.
 
-display/
-  simulator.py       – saves output/dashboard.png (macOS)
-  epaper.py          – Waveshare 7.5" V2 driver (Raspi only)
-```
+## School and Wilma
 
-## Layout (NOW band + content row + stats line + forecast strip)
+- Wilma school timetable can come from private iCal feeds configured in `school_schedules`.
+- Nightly job filename `wilma_nightly.py` is retained, but the current installed schedule is four daytime runs at 12:00, 13:00, 14:00, 15:00 Europe/Helsinki.
+- School page may display AI-assisted summaries and short recommendations from local saved schoolwork and messages; always preserve source references and do not invent due dates or completion.
+- A failure must not erase the last successful cache. Do not log message bodies, secret credentials or AI responses.
+- Consult [WILMA_REMINDERS.md](WILMA_REMINDERS.md) and the tests for the precise data contracts.
 
-```
-┌────────────────────────────────────────────────────────┐  BAND_H = 118px
-│  07:42  to 6.8.   ☁ 18° Pilvistä        lähtö 12 min  │  (inverted: white bg)
-├──────────────────┬──────────────────┬──────────────────┤  MID_H = 190px
-│  PÄIVÄKOTI       │  KALENTERI       │  HSL lähdöt      │
-├──────────────────┴──────────────────┴──────────────────┤  STATS_Y = 308
-│  Sähkö 32.0 kWh eilen · Sekajäte 7 pv · Biojäte 26 pv  │
-├────────────────────────────────────────────────────────┤  FORECAST_H = 140px
-│  ENNUSTE  (full width, 7 days as columns)              │
-└────────────────────────────────────────────────────────┘
-COL_W ≈ 266px, COL2_X = 267, COL3_X = 534, FORECAST_Y = 340
-```
+## Safety and implementation rules
 
-- NOW band (`_draw_now_band`): 72px clock + date, current weather (black icon
-  via `_draw_weather_icon(..., ink=BG, paper=FG)`), leave-in countdown for the
-  first HSL connection ("12 min"). Electricity + waste render as one stats
-  line (`_draw_stats_line`) — they no longer have cells.
-- Partial regions live in the band: CLOCK_REGION = (0, 0, 240, 118),
-  HSL_REGION = (624, 0, 800, 118) — clock and countdown tick every minute.
-
-## Rendering conventions (render.py)
-
-- **Fonts**: Inter (fonts/ dir) → Futura (macOS) → Helvetica (macOS) → DejaVu (Linux)
-- **Colors**: inverted — BG=0 (black), FG=255 (white), GRAY=255, DIVIDER=255
-  (pure white: the panel is 1-bit, mid-grays dither to speckle)
-- FONT_CLOCK72=72bold, FONT_HERO=46bold, FONT_MED=18bold, FONT_SMALL=17bold,
-  FONT_TINY=14bold, FONT_TINY_R=14 regular, FONT_REG18=18 regular, FONT_LABEL=12
-- Section labels: FONT_LABEL gray at top of each cell (`_label()` helper)
-- No dividers between list items (removed for cleaner look)
-- Weather icons: geometric Pillow drawing (no emoji/unicode symbols)
-- HSL mode icons: removed — lines ("165 -> U") are self-explanatory
-- Arrows: use `->` not `→` (unicode arrows unreliable across fonts)
-- Text wrapping: `_wrap_text(draw, text, font, max_width)` — pixel-based, not char-based
-- Badge: `_badge(draw, x, y, text)` — black pill with white text (used in HSL)
-
-## Data module patterns
-
-Each module follows the same pattern:
-```python
-def fetch(config: dict, use_cache: bool = True) -> dict:
-    ttl = config.get("cache", {}).get("MODULE_ttl_minutes", DEFAULT)
-    if use_cache and _cache_is_fresh(ttl): return _load_cache()
-    # ... fetch from API ...
-    _save_cache(data)
-    return data
-```
-
-Stale cache fallback on network errors: `data["_stale"] = True`
-
-## Cache TTLs (config.yaml)
-
-```yaml
-cache:
-  ttl_minutes: 55           # weather, calendar (default)
-  hsl_ttl_minutes: 10       # real-time transit
-  hsl_active_hours: [6, 22] # no HSL fetches outside these hours
-  evaka_ttl_minutes: 1440   # daycare: once per day
-  electricity_ttl_minutes: 720  # electricity: twice per day
-```
-
-Cron runs `main.py` every 10 minutes + `@reboot`; each module decides independently.
-
-## HSL module specifics (data/hsl.py)
-
-- Digitransit v2 GraphQL: `https://api.digitransit.fi/routing/v2/hsl/gtfs/v1`
-- Variable types: `CoordinateValue!` for lat/lon, `OffsetDateTime!` for time
-- startTime/endTime from API are **epoch milliseconds** (not ISO strings)
-- Mode-specific walk time filtering:
-  - BUS/TRAM/FERRY: `min_walk_bus` (default 3 min)
-  - RAIL/SUBWAY: `min_walk_rail` (default 15 min)
-- Each connection returns: departure, arrival, minutes_until, lines ("165 -> U"),
-  walk_minutes, first_mode, first_stop, first_depart
-- Outside `hsl_active_hours`: returns stale cache or empty result (no API call)
-- Render: first connection shown with FONT_MED + badge, rest compact
-
-## eVaka module specifics (data/evaka.py)
-
-- POST `/api/citizen/auth/weak-login` → session cookie saved to `cache/evaka_session.json`
-- GET `/api/citizen/calendar-events?start=...&end=...`
-- Auto re-login on 401/403
-- The signed 90-day device cookie (`__Host-evaka-device-user-<sha256(personId)>`) MUST be
-  persisted and replayed on every login — eVaka emails the user about a "login from a new
-  browser" whenever a weak login arrives without it. Cookies are seeded with the real host
-  as domain so Set-Cookie responses replace them instead of duplicating in the jar
-  (duplicates make `dict(jar)` raise CookieConflictError).
-- Events have separate `title` and `description` fields
-- 14-day window
-- `_apply_cutoff()`: called on both fresh and cached data — hides today's events
-  after `_AFTERNOON_CUTOFF_HOUR = 18`
-
-## Calendar module specifics (data/calendar.py)
-
-- iCal links from config (no OAuth needed)
-- 30-day window
-- Date uses local timezone (`.astimezone().date()`), not UTC
-- Filters out timed events that have already ended (uses DTEND)
-- Returns up to 8 events, renderer shows ~3 that fit in the cell
-
-## Forecast strip specifics
-
-- Bottom strip renders `weather["forecast"]` — up to 7 coming days as columns
-  (day+date, weather icon, high/low temps), drawn by `_draw_forecast()` in render.py
-- Forecast data comes from the weather module (Open-Meteo `forecast_days: 8`,
-  index 0 = today used by the SÄÄ cell, indices 1-7 = the strip)
-- Day icons use the dominant daytime (08–20) hourly weather_code, NOT the daily
-  code — Open-Meteo's daily code is the day's worst hour, so a trace shower
-  would turn a sunny day into a rain icon. The worst-case daily code is kept
-  when the day is genuinely wet (precipitation_sum ≥ 1 mm or ≥ 5 rain-hours).
-- News module was removed in favor of this (data/news.py deleted Aug 2026)
-
-## Known issues / TODO
-
-- [ ] Caruna (pycaruna) returning null kWh — likely Caruna API change, check pycaruna updates
-- [ ] Pi Zero 2 W with headers (WH version) would avoid needing to solder headers
-
-## Git
-
-Branch: main
-Repo: https://github.com/JuhaniS/eInk
-Last major commits:
-- "Refine layout, fonts, and config" — Inter fonts, 3-col layout, news strip, evaka cutoff fix
-- "Update README" — layout diagram, hardware info
+- Keep family data on the trusted LAN; never expose port 8080 directly to the internet.
+- Keep iCal private URLs, Wilma credentials, Digitransit tokens, AI keys and cache records out of commits and chat.
+- Prefer small code changes that preserve the kiosk view and do not require a physical display.
+- Only update `main` for new development. The old feature branch is preserved temporarily for safe deployment migration.
+- The supervisor accepts only fast-forward pulls and does **not** install new dependencies automatically.
+- Test the relevant module(s) and verify the changed routes or rendering before deploying. Avoid gratuitous dashboard or service restarts.

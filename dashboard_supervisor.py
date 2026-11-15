@@ -146,8 +146,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--branch",
-        default="family-dashboard-v1",
-        help="Git branch to follow (default: family-dashboard-v1)",
+        default="main",
+        help="Git branch to follow (default: main)",
     )
     parser.add_argument(
         "--check-seconds",

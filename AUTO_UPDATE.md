@@ -1,44 +1,34 @@
-# Automatic GitHub updates
+# Automaattinen GitHub-päivitys ja jatkuva käyttö
 
-`dashboard_supervisor.py` is the preferred way to run the Android/tablet MVP server when you want repository changes to deploy automatically.
+Perheen näyttö julkaistaan Raspberry Pi 5 -palvelimella kodin sisäverkkoon. `dashboard_supervisor.py` käynnistää `web_dashboard.py`-palvelimen, valvoo prosessia ja hakee koodipäivitykset GitHubista.
 
-The permanent MVP server is now the Raspberry Pi 5. The earlier Windows-server path is still useful for development or fallback testing, but normal kitchen-tablet operation no longer depends on a Windows computer.
+**Aktiivinen kehityshaara on `main`.** `family-dashboard-v1`-haaran sisältö yhdistettiin siihen 15.11.2026. Vanha haara on säilytetty, jotta kotona jo käynnissä oleva Raspberry Pi -asennus ei lakkaa toimimasta ennen paikallista haaranvaihtoa.
 
-## What it does
+## Toimintaperiaate
 
-The supervisor:
+Valvoja käynnistää web-palvelimen, tarkistaa GitHubin `origin/main`-haaran oletuksena 60 sekunnin välein, tekee vain fast-forward-tyyppisiä päivityksiä ja käynnistää web-palvelimen uudelleen, jos uusia muutoksia tuli. Web-palvelin päivittää näkymän 30 sekunnin välein. Jos palvelinprosessi kaatuu, valvoja käynnistää sen uudelleen.
 
-1. starts `web_dashboard.py`
-2. checks `origin/family-dashboard-v1` every 60 seconds
-3. if a newer commit exists, stops the dashboard briefly
-4. runs a fast-forward-only Git pull
-5. restarts the web dashboard using the new code
-6. keeps watching for later changes
+Valvoja ei vaihda Git-haaraa itsestään. Käynnistettäessä se tarkistaa, että paikallinen haara ja `--branch`-valinta vastaavat toisiaan. Uudessa `main`-versiossa valinnan oletusarvo on `main`.
 
-This means a change committed to `family-dashboard-v1` from another computer, phone workflow or ChatGPT/GitHub session can normally appear on the kitchen dashboard within about one minute without manually running `git pull` on the server.
+## Kotipalvelimen asennus
 
-## Current Raspberry Pi MVP server
+Käytössä oleva laite on Raspberry Pi 5 (2 Gt) ja Raspberry Pi OS Lite 64-bit. Sovellus on sijoitettu hakemistoon `~/eInk`, käytössä on projektin `venv`-virtuaaliympäristö ja paikallinen, versionhallinnasta pois jätetty `config.yaml`. Laitteen verkko-osoite pidetään vakaana reitittimen DHCP-varauksella. Tabletin selaimelle käytetään Raspberry Pin sisäverkon IP-osoitetta portissa 8080; `.local`-nimeen ei kannata luottaa pysyvänä osoitteena.
 
-The current home deployment has been verified on:
+Uusi asennus:
 
-- Raspberry Pi 5, 2 GB RAM
-- Raspberry Pi OS Lite 64-bit
-- repository at `~/eInk` on branch `family-dashboard-v1`
-- project virtual environment at `~/eInk/venv`
-- local gitignored `config.yaml`
-- hostname `familydisplay`
-- DHCP reservation on the home router so the tablet can use a stable LAN address
-
-Run the supervisor manually for a first test:
-
-```bash
-cd ~/eInk
+~~~bash
+git clone https://github.com/salajukk/eInk.git
+cd eInk
+python3 -m venv venv
+venv/bin/python -m pip install -r requirements.txt
+cp config.example.yaml config.yaml
+# täydennä config.yaml paikallisesti
 venv/bin/python dashboard_supervisor.py
-```
+~~~
 
-Once the manual run works, install it as a `systemd` service. The tested service shape is:
+Palvelu voidaan käynnistää automaattisesti `systemd`:llä esimerkiksi tällä yksiköllä (`/etc/systemd/system/family-dashboard.service`):
 
-```ini
+~~~ini
 [Unit]
 Description=Family Dashboard
 After=network-online.target
@@ -54,93 +44,61 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-```
+~~~
 
-Save that as:
+Korvaa `YOUR_PI_USER` oikealla Raspberry Pin käyttäjällä ja ota palvelu käyttöön:
 
-```text
-/etc/systemd/system/family-dashboard.service
-```
-
-Replace `YOUR_PI_USER` with the actual local Raspberry Pi account, then enable it:
-
-```bash
+~~~bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now family-dashboard.service
-```
+systemctl status family-dashboard.service --no-pager
+~~~
 
-Check status with:
+Päänäkymä: `http://<raspberry-pin-lähiverkon-ip>:8080`. Palvelun terveystesti: `/health`.
 
-```bash
-systemctl status family-dashboard.service
-```
+## Jo käytössä olevan Raspberry Pi:n siirtäminen vanhasta haarasta
 
-The expected state is:
+**GitHubin merge ei muuta Raspberry Pin Git-haaraa.** Jos palvelimen paikallinen haara on edelleen `family-dashboard-v1`, se seuraa edelleen vanhaa haaraa ja näyttö toimii normaalisti, mutta se ei saa uusia `main`-haaran päivityksiä.
 
-```text
-Active: active (running)
-```
+Siirto tehdään kerran SSH-yhteydellä. Tarkista mahdolliset paikalliset muutokset ensin; älä ylikirjoita niitä:
 
-The current Raspberry deployment has been reboot-tested successfully: after reboot it reconnects to Wi-Fi, starts `family-dashboard.service`, starts the supervisor and serves a fresh dashboard to the Android tablet without an SSH session or Windows server.
+~~~bash
+cd ~/eInk
+git status --short
+sudo systemctl stop family-dashboard.service
+git fetch origin main
+git switch main
+git pull --ff-only origin main
+sudo systemctl start family-dashboard.service
+systemctl status family-dashboard.service --no-pager
+~~~
 
-The tablet should use the Pi's reserved LAN IP and port 8080. `.local` name resolution was not reliable on the Android tablet, so the home router's DHCP reservation is the preferred way to keep the address stable.
+Jos `git status --short` näyttää versionhallittujen tiedostojen muutoksia tai `git switch main` ilmoittaa ristiriidasta, korjaa tilanne ennen jatkamista; älä käytä `--force`- tai `reset --hard` -komentoja. Omat tunnukset ja salaiset osoitteet säilyvät paikallisessa, gitignore-säännöissä olevassa `config.yaml`-tiedostossa. Tarkista palvelun mahdolliset erilliset käynnistysparametrit komennolla `systemctl cat family-dashboard.service`: jos palvelu käyttää `--branch family-dashboard-v1`, muuta parametri `--branch main` ja lataa palvelumäärittely uudelleen.
 
-## Windows development/fallback server
+Mikäli palvelu ei käynnisty, tarkista lokit:
 
-For a temporary Windows run, first update the checkout once manually:
+~~~bash
+journalctl -u family-dashboard.service -n 100 --no-pager
+~~~
 
-```powershell
-cd C:\Users\salam\Documents\eInk
-git pull
-```
+## Päivityksen turvarajat
 
-Then run the supervisor instead of starting `web_dashboard.py` directly:
+- Automaattinen päivitys onnistuu vain, jos Git-työpuun versionhallittu osa on puhdas ja etähaaran muutos voidaan ottaa käyttöön fast-forwardina.
+- Paikallisia versionhallittuja muutoksia ei ylikirjoiteta, eikä valvoja vaihda haaraa.
+- `config.yaml`, salaisuudet ja `cache/` pysyvät paikallisina eikä niitä viedä GitHubiin.
+- Valvoja **ei asenna Python-riippuvuuksia**. Jos `requirements*.txt` muuttuu, tee virtuaaliympäristön `pip install -r requirements.txt` erikseen.
+- `dashboard_supervisor.py` pyrkii lataamaan itsensä uudelleen, jos sen oma tiedosto muuttui päivityksessä.
 
-```powershell
+## Käyttö Windows-kehityskoneella
+
+Käytä projektin `main`-haaraa. Voit käynnistää valvojan PowerShellistä:
+
+~~~powershell
 .\venv\Scripts\python.exe dashboard_supervisor.py
-```
+~~~
 
-Leave this PowerShell window running. The dashboard stays available at the same address as before:
+Tavallinen web-palvelin voidaan testata ilman valvojaa myös komennolla `python web_dashboard.py`. Windowsia ei tarvita Raspberry Pi:n jatkuvaan käyttöön.
 
-```text
-http://localhost:8080
-```
+**Tietoturva:** näkymä on tarkoitettu vain luotettuun kotiverkkoon. Älä avaa palvelimen porttia 8080 suoraan internetiin, sillä sisältö voi paljastaa perheen kalenteri- ja koulutietoja.
 
-The tablet can use the Windows computer's LAN address while this fallback server is running.
-
-Default timing on both Windows and Raspberry Pi:
-
-```text
-GitHub update check: every 60 seconds
-Dashboard render:    every 30 seconds
-```
-
-You can change the Git check interval, but the supervisor intentionally refuses intervals below 30 seconds:
-
-```bash
-venv/bin/python dashboard_supervisor.py --check-seconds 60
-```
-
-## Safety behaviour
-
-Automatic deployment deliberately has a few safeguards:
-
-- it follows only `family-dashboard-v1` by default
-- it never switches branches automatically
-- it only accepts fast-forward Git updates
-- if tracked files have local edits, it skips the pull rather than overwriting them
-- `config.yaml`, credentials and caches remain local and gitignored
-- if the dashboard process crashes, the supervisor restarts it
-- if `dashboard_supervisor.py` itself changes, it attempts to reload itself after pulling
-
-Do not use the server checkout for ad-hoc edits while automatic updates are enabled. Make code changes through Git and let the server act as a deployment checkout.
-
-## Python dependency changes
-
-The supervisor updates repository files but does **not** automatically install new Python packages. If a commit changes a `requirements*.txt` file, the supervisor prints a warning.
-
-Normal layout, rendering, documentation and data-logic changes should deploy without manual package installation. If a future change adds a new dependency, install the updated requirements manually once on the Raspberry Pi.
-
-## Physical e-paper deployment remains separate
-
-The supervisor currently manages the browser/tablet `web_dashboard.py` server. The future physical Waveshare 13.3inch output remains a separate deployment mode and must be tested independently on the Raspberry Pi 5 before the current draft PR is considered complete.
+Katso myös [README.md](README.md), [SYSTEM_HEALTH.md](SYSTEM_HEALTH.md) ja [TABLET_MONTH_CALENDAR.md](TABLET_MONTH_CALENDAR.md).

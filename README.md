@@ -4,7 +4,7 @@
 
 **Toteutuksen tila:** käytössä kotiverkossa. **E-ink-näyttöä ei enää tavoitella eikä tarvita.** Repositorion nimi `eInk` sekä osa tiedostoista ja asetusten nimistä ovat aiemman laitteistosuunnitelman perintöä.
 
-> **Tärkeää GitHub-haaroista:** nykyinen sovellus sijaitsee haarassa **`family-dashboard-v1`**. Repositorion oletushaara `main` sisältää vanhan e-ink-painotteisen version, eikä sen koodi vastaa tätä kotiverkon web-sovellusta.
+> **Aktiivinen kehityshaara: `main`.** Aiempi `family-dashboard-v1` yhdistettiin `main`-haaraan 15.11.2026. Vanha haara säilytetään siirtymävaiheen ajan, koska kodin Raspberry Pi -asennus voi vielä seurata sitä. Uudet muutokset tehdään `main`-haaraan.
 
 ## Näin järjestelmä toimii
 
@@ -66,10 +66,10 @@ Koulumuistutusten erillinen ajo käyttää `wilma_nightly.py`-skriptiä ja talle
 
 ## Käynnistäminen kehityskoneella tai uudella Raspberry Pi:llä
 
-Ohjeet koskevat **`family-dashboard-v1`-haaraa**, eivät vanhaa `main`-haaraa.
+Ohjeet koskevat projektin **`main`-haaraa**.
 
 ~~~bash
-git clone --branch family-dashboard-v1 https://github.com/salajukk/eInk.git
+git clone https://github.com/salajukk/eInk.git
 cd eInk
 python3 -m venv venv
 venv/bin/python -m pip install -r requirements.txt
@@ -105,7 +105,7 @@ Windowsilla käytä virtuaaliympäristön Pythonia `venv\Scripts\python.exe`. Ve
 
 ## Raspberry Pi:n jatkuva käyttö ja automaattiset GitHub-päivitykset
 
-Kotona palvelin ajetaan `dashboard_supervisor.py`-prosessin kautta. Se käynnistää web-palvelimen, valvoo sitä ja tarkistaa **`origin/family-dashboard-v1`**-haaran päivitykset oletuksena **60 sekunnin välein**. Uudempi koodi otetaan käyttöön vain turvallisella fast-forward-päivityksellä; paikallisia muokattuja versionhallittuja tiedostoja ei ylikirjoiteta. Palvelu käynnistetään `systemd`:llä.
+Kotona palvelin ajetaan `dashboard_supervisor.py`-prosessin kautta. Se käynnistää web-palvelimen, valvoo sitä ja tarkistaa **`origin/main`**-haaran päivitykset oletuksena **60 sekunnin välein** (kun palvelimen paikallinen haara on vaihdettu `main`-haaraan). Uudempi koodi otetaan käyttöön vain turvallisella fast-forward-päivityksellä; paikallisia muokattuja versionhallittuja tiedostoja ei ylikirjoiteta. Palvelu käynnistetään `systemd`:llä.
 
 Käynnistyksen testaus:
 
@@ -122,6 +122,29 @@ journalctl -u family-dashboard.service -n 100 --no-pager
 ~~~
 
 Katso palvelun luonti ja käyttöönotto tiedostosta [AUTO_UPDATE.md](AUTO_UPDATE.md). **Huom:** automaattinen Git-päivitys ei asenna uusia Python-riippuvuuksia; jos `requirements.txt` muuttuu, riippuvuudet on päivitettävä palvelimella erikseen.
+
+### Nykyisen Raspberry Pi -asennuksen siirto `main`-haaraan (kerran)
+
+GitHub-haarojen yhdistäminen ei itsessään vaihda Raspberry Pi:n paikallista haaraa. Vanhassa asennuksessa `dashboard_supervisor.py` seuraa edelleen `family-dashboard-v1`-haaraa; kotinäyttö pysyy siis toiminnassa, mutta uudet `main`-muutokset eivät saavu Pi:lle ennen tätä kertaluonteista siirtoa.
+
+Yhdistä ensin SSH:lla Raspberry Pi:hin ja suorita seuraavat komennot projektin asennuskäyttäjänä. Siirto pysäyttää verkkonäkymän hetkeksi:
+
+~~~bash
+cd ~/eInk
+git status --short               # varmista, ettei seuratuissa tiedostoissa ole paikallisia muutoksia
+sudo systemctl stop family-dashboard.service
+git fetch origin main
+git switch main
+git pull --ff-only origin main
+sudo systemctl start family-dashboard.service
+systemctl status family-dashboard.service --no-pager
+~~~
+
+Jos `git status --short` näyttää paikallisia muokkauksia seuratuissa tiedostoissa, älä vaihda haaraa ennen kuin ne on käsitelty. Paikallinen, gitignore-säännöissä oleva `config.yaml` ja välimuisti säilyvät ennallaan. Jos `git switch main` pysähtyy ristiriitaan, älä pakota vaihtoa.
+
+**Tarkista tarvittaessa palvelun käynnistyskomento** (`systemctl cat family-dashboard.service`). Uusi `main`-version valvoja seuraa `main`-haaraa oletuksena. Mikäli palvelu antaa eksplisiittisesti `--branch family-dashboard-v1`, vaihda se muotoon `--branch main` ja käynnistä palvelu uudelleen. Tarkista lopuksi `http://<raspberry-pin-lähiverkon-ip>:8080/health`.
+
+Siirtymän jälkeen kehitä ja julkaise muutokset vain `main`-haaraan.
 
 ## Tarkistus ja ylläpito
 

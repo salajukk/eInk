@@ -1,4 +1,6 @@
-# Family Dashboard
+# Family Dashboard – historical hardware notes
+
+> **Historiallinen dokumentti (15.11.2026):** e-ink-hardware-suunnitelmasta on luovuttu. Nykyinen perheen näyttö on Raspberry Pi 5 -palvelimelta kodin Wi-Fi-verkkoon julkaistu selainratkaisu, jonka yhteinen näyttö on vanha Android-tabletti kiosk-tilassa. **Aktiivinen haara on `main`.** Lue nykyistä käyttöä ja asennusta varten [README.md](README.md) ja [AUTO_UPDATE.md](AUTO_UPDATE.md). Alla olevat e-paperin hankinta-, SPI- ja ajuriohjeet ovat vanhan suunnitelman arkistoa, eivät kehitystehtäviä.
 
 This branch keeps the original layouts available and adds a family-focused 13.3inch dashboard layout.
 
